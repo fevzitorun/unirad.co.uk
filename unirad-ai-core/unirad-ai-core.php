@@ -269,13 +269,24 @@ function unirad_ai_handle_chat() {
         wp_send_json_error( $result['error'] );
     }
 
-    $reply     = $result['text'];
-    $history[] = [ 'role' => 'assistant', 'content' => $reply ];
+    $reply      = $result['text'];
+    $history[]  = [ 'role' => 'assistant', 'content' => $reply ];
     unirad_ai_save_history( $history );
+
+    $turn_count = (int) floor( count( $history ) / 2 );
+
+    // Fire high-interest signal once when the patient crosses 5 turns
+    if ( $turn_count === 5 ) {
+        do_action( 'unirad_aria_high_interest', [
+            'session_key' => unirad_ai_session_key(),
+            'email'       => '',
+            'turns'       => $turn_count,
+        ] );
+    }
 
     wp_send_json_success( [
         'reply'      => $reply,
-        'turn_count' => (int) floor( count( $history ) / 2 ),
+        'turn_count' => $turn_count,
     ] );
 }
 

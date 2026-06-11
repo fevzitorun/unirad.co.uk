@@ -1989,6 +1989,14 @@ document.addEventListener("uqb:preselect", function(e) {
             'scan_price' => $scan_price,
             'status'     => 'pending',
         ) );
+        $lead_id = (int) $wpdb->insert_id;
+
+        do_action( 'unirad_lead_created', [
+            'lead_id'   => $lead_id,
+            'name'      => $name,
+            'email'     => $email,
+            'scan_type' => $scan_label,
+        ] );
     }
 
     public static function mark_lead_converted( $email, $scan_label ) {
@@ -2001,6 +2009,11 @@ document.addEventListener("uqb:preselect", function(e) {
             array( 'email' => $email, 'scan_type' => $scan_label, 'status' => 'pending' ),
             array( '%s' ), array( '%s', '%s', '%s' )
         );
+        do_action( 'unirad_lead_converted', [
+            'email'     => $email,
+            'name'      => '',
+            'scan_type' => $scan_label,
+        ] );
     }
 
     // Cron: runs every hour, sends recovery email to leads 60+ min old that haven't converted
@@ -2023,7 +2036,8 @@ document.addEventListener("uqb:preselect", function(e) {
             $first_name = $parts[0] ?: 'there';
             $price_str  = $lead->scan_price ? ' (' . $lead->scan_price . ')' : '';
             // A/B test: rotate subject line by lead ID (even = control, odd = urgency)
-            $subject = ( (int) $lead->id % 2 === 0 )
+            $ab_variant = (int) $lead->id % 2;
+            $subject = ( $ab_variant === 0 )
                 ? 'Complete your ' . $lead->scan_type . ' booking — Unirad Glasgow'
                 : 'URGENT: Your priority MRI slot is expiring soon ⏰';
 
@@ -2054,7 +2068,17 @@ document.addEventListener("uqb:preselect", function(e) {
             $b .= '</div></div>';
 
             self::brevo_send( $lead->email, $lead->name, $subject, $b );
-            $wpdb->update( $table, array( 'recovery_sent' => 1 ), array( 'id' => $lead->id ), array( '%d' ), array( '%d' ) );
+
+            $update_data   = array( 'recovery_sent' => 1 );
+            $update_format = array( '%d' );
+            $cols          = $wpdb->get_col( "SHOW COLUMNS FROM `{$table}`" );
+            if ( in_array( 'subject_ab', $cols, true ) ) {
+                $update_data['subject_ab'] = $ab_variant;
+                $update_format[]           = '%d';
+            }
+            $wpdb->update( $table, $update_data, array( 'id' => $lead->id ), $update_format, array( '%d' ) );
+
+            do_action( 'unirad_lead_abandoned', $lead );
         }
     }
 

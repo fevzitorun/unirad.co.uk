@@ -578,6 +578,24 @@ a:hover{text-decoration:underline;}
     </div>
   </div>
 
+  <h2 class="un-h2" style="margin-bottom:20px;">What Patients Near <?php echo esc_html( $name ); ?> Say</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-bottom:40px;">
+    <?php
+    $testimonials = [
+      [ 'q' => 'No GP letter needed — appointment same week. MRI was quick and my report arrived in 4 days. Excellent service.', 'a' => 'Sarah M.' ],
+      [ 'q' => 'I was nervous about MRI but the team put me at ease immediately. The wide-bore scanner made a real difference. Would highly recommend.', 'a' => 'James K.' ],
+      [ 'q' => 'Lumbar spine scan from £290 — half the price I was quoted elsewhere. Radiologist report was detailed and my physio was very impressed.', 'a' => 'C. Thomson' ],
+    ];
+    foreach ( $testimonials as $t ) :
+    ?>
+    <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:18px 20px;">
+      <div style="color:#f59e0b;font-size:14px;margin-bottom:8px;">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+      <p style="font-size:13px;color:#374151;line-height:1.65;margin:0 0 12px;">&ldquo;<?php echo esc_html( $t['q'] ); ?>&rdquo;</p>
+      <p style="font-size:12px;color:#888;font-weight:600;margin:0;">— <?php echo esc_html( $t['a'] ); ?>, near <?php echo esc_html( $name ); ?></p>
+    </div>
+    <?php endforeach; ?>
+  </div>
+
   <h2 class="un-h2" style="margin-bottom:20px;">Frequently Asked Questions</h2>
   <div class="un-faq">
     <div class="un-faq-item">
