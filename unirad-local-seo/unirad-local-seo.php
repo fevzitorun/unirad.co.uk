@@ -608,6 +608,23 @@ a:hover{text-decoration:underline;}
 
 </div><!-- .un-section -->
 
+<div class="un-section">
+  <h2 class="un-h2" style="margin-bottom:16px;">How to Find Us from <?php echo esc_html( $name ); ?></h2>
+  <p style="font-size:14px;color:#555;margin-bottom:16px;">Unirad Private MRI &middot; 22 Loanbank Quadrant, Govan, Glasgow G51 3HZ &middot; Free parking on site</p>
+  <div style="border-radius:12px;overflow:hidden;border:1px solid #e0e0e0;box-shadow:0 2px 8px rgba(0,0,0,.08);">
+    <iframe
+      src="https://maps.google.com/maps?q=22+Loanbank+Quadrant,+Govan,+Glasgow+G51+3HZ&output=embed&z=15"
+      width="100%"
+      height="320"
+      style="border:0;display:block;"
+      allowfullscreen=""
+      loading="lazy"
+      referrerpolicy="no-referrer-when-downgrade"
+      title="Unirad Private MRI — 22 Loanbank Quadrant, Glasgow G51 3HZ"
+    ></iframe>
+  </div>
+</div>
+
 <div class="un-cta-banner">
   <h2>Book Your MRI Scan Today</h2>
   <p>Serving <?php echo esc_html( $name ); ?> and surrounding areas &middot; Same-week availability &middot; From £290</p>

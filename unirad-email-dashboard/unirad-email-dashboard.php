@@ -10,10 +10,14 @@ Author:      Unirad
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 // ── Brevo API Key ────────────────────────────────────────────────────────────
-// Edit locally, then upload. Never share this key in chat.
-define( 'UNIRAD_BREVO_KEY', getenv('UNIRAD_BREVO_KEY') ?: '' );
+// Key is stored in the WordPress database (wp_options).
+// Go to WP Admin → 📧 Email Dashboard → ⚙️ API Keys to enter your Brevo key.
+define( 'UNIRAD_DASH_CACHE_TTL', 300 );
 
-define( 'UNIRAD_DASH_CACHE_TTL', 300 ); // 5-minute cache for Brevo API responses
+function unirad_brevo_get_key() {
+    $opts = get_option( 'unirad_dash_settings', [] );
+    return $opts['brevo_key'] ?? '';
+}
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 add_action( 'admin_menu', 'unirad_dash_menu' );
@@ -32,6 +36,61 @@ function unirad_dash_menu() {
         'dashicons-email-alt',
         57
     );
+    add_submenu_page(
+        'unirad-email-dashboard',
+        'API Keys',
+        '&#9881;&#65039; API Keys',
+        'manage_options',
+        'unirad-api-keys',
+        'unirad_dash_api_keys_page'
+    );
+}
+
+function unirad_dash_api_keys_page() {
+    if ( isset( $_POST['unirad_dash_keys_save'] ) ) {
+        check_admin_referer( 'unirad_dash_keys_save' );
+        $brevo = sanitize_text_field( wp_unslash( $_POST['brevo_key'] ?? '' ) );
+        update_option( 'unirad_dash_settings', [ 'brevo_key' => $brevo ] );
+        delete_transient( 'unirad_dash_stats_7d' );
+        delete_transient( 'unirad_dash_stats_30d' );
+        delete_transient( 'unirad_dash_emails' );
+        echo '<div class="notice notice-success is-dismissible"><p><strong>Saved.</strong> API keys updated and cache cleared.</p></div>';
+    }
+
+    $opts  = get_option( 'unirad_dash_settings', [] );
+    $brevo = $opts['brevo_key'] ?? '';
+    ?>
+    <div class="wrap" style="max-width:640px;">
+    <h1>&#9881;&#65039; API Keys</h1>
+    <p style="color:#555;margin-bottom:24px;">All API keys are stored securely in the WordPress database (wp_options). They are <strong>never</strong> written to PHP source files or committed to version control.</p>
+
+    <?php if ( empty( $brevo ) ) : ?>
+    <div class="notice notice-warning"><p>&#9888; Brevo key not set — Email Dashboard stats will be unavailable.</p></div>
+    <?php endif; ?>
+
+    <form method="post">
+    <?php wp_nonce_field( 'unirad_dash_keys_save' ); ?>
+
+    <h2 style="font-size:15px;border-bottom:1px solid #e0e0e0;padding-bottom:8px;margin:20px 0 16px;">Brevo (Email Service)</h2>
+    <table class="form-table" role="presentation">
+      <tr>
+        <th scope="row"><label for="brevo_key">Brevo API Key</label></th>
+        <td>
+          <input id="brevo_key" name="brevo_key" type="password" class="large-text"
+            value="<?php echo esc_attr( $brevo ); ?>"
+            placeholder="xkeysib-...">
+          <p class="description">Get your key at <a href="https://app.brevo.com/settings/keys/api" target="_blank">app.brevo.com → Settings → API Keys</a></p>
+          <?php if ( $brevo ) : ?>
+          <p style="margin-top:8px;color:#00a896;font-weight:600;">&#10003; Key is set (<?php echo esc_html( substr( $brevo, 0, 16 ) ); ?>...)</p>
+          <?php endif; ?>
+        </td>
+      </tr>
+    </table>
+
+    <p><button type="submit" name="unirad_dash_keys_save" class="button button-primary button-large">Save API Keys</button></p>
+    </form>
+    </div>
+    <?php
 }
 
 // ── Assets ───────────────────────────────────────────────────────────────────
@@ -50,8 +109,8 @@ function unirad_dash_assets( $hook ) {
 // ── Brevo API Helper ──────────────────────────────────────────────────────────
 
 function unirad_brevo_get( $endpoint, $params = [] ) {
-    $key = UNIRAD_BREVO_KEY;
-    if ( empty( $key ) || $key === 'REPLACE_WITH_YOUR_BREVO_API_KEY' ) {
+    $key = unirad_brevo_get_key();
+    if ( empty( $key ) ) {
         return new WP_Error( 'no_key', 'Brevo API key not configured.' );
     }
 
@@ -203,7 +262,7 @@ function unirad_event_badge( $event ) {
 function unirad_dash_page() {
     $nonce   = wp_create_nonce( 'unirad_dash_nonce' );
     $ajax    = esc_url( admin_url( 'admin-ajax.php' ) );
-    $key_set = ( UNIRAD_BREVO_KEY !== 'REPLACE_WITH_YOUR_BREVO_API_KEY' );
+    $key_set = ! empty( unirad_brevo_get_key() );
 
     $stats7  = $key_set ? unirad_dash_get_stats( 7 )  : null;
     $stats30 = $key_set ? unirad_dash_get_stats( 30 ) : null;
@@ -282,7 +341,7 @@ function unirad_dash_page() {
 
       <?php if ( ! $key_set ) : ?>
         <div class="ud-notice warn">
-          <strong>Brevo API key not set.</strong> Open <code>unirad-email-dashboard.php</code> on line 14 and replace the placeholder with your Brevo API key (starts with <code>xkeysib-...</code>), then re-upload.
+          <strong>Brevo API key not set.</strong> Open <code>unirad-email-dashboard.php</code> on line 14 and replace the placeholder with your Brevo API key (starts with <code>xkeysib-</code>), then re-upload.
         </div>
       <?php elseif ( is_wp_error( $stats7 ) ) : ?>
         <div class="ud-notice err">

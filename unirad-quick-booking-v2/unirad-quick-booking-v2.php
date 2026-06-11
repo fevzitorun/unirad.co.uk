@@ -13,7 +13,8 @@ date_default_timezone_set( 'Europe/London' );
 // ============================================================
 // CONFIGURATION — edit these values as needed
 // ============================================================
-if ( ! defined( 'UQB_BREVO_API_KEY' ) )     define( 'UQB_BREVO_API_KEY', getenv('UNIRAD_BREVO_KEY') ?: '' );
+// Brevo key shared with Email Dashboard — set via WP Admin → 📧 Email Dashboard → ⚙️ API Keys
+if ( ! defined( 'UQB_BREVO_API_KEY' ) )     define( 'UQB_BREVO_API_KEY', ( get_option( 'unirad_dash_settings', [] )['brevo_key'] ?? '' ) );
 if ( ! defined( 'UQB_NOTIFY_EMAIL' ) )      define( 'UQB_NOTIFY_EMAIL',        'booking@unirad.co.uk' );
 if ( ! defined( 'UQB_BOOKLY_STAFF_ID' ) )   define( 'UQB_BOOKLY_STAFF_ID',     6 );
 if ( ! defined( 'UQB_BOOKLY_SERVICE_ID' ) ) define( 'UQB_BOOKLY_SERVICE_ID',   38 );
@@ -145,6 +146,7 @@ class Unirad_Quick_Booking_V2 {
         $full_html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . esc_html($subject) . '</title></head><body style="margin:0;padding:20px;background:#f4f6f9;font-family:Arial,sans-serif">' . $html_body . '</body></html>';
 
         if ( empty( $api_key ) ) {
+            // No Brevo key set — fall back to wp_mail
             $headers = array( 'Content-Type: text/html; charset=UTF-8' );
             wp_mail( $to_email, $subject, $full_html, $headers );
             return;
@@ -2020,7 +2022,10 @@ document.addEventListener("uqb:preselect", function(e) {
             $parts      = explode( ' ', trim( $lead->name ) );
             $first_name = $parts[0] ?: 'there';
             $price_str  = $lead->scan_price ? ' (' . $lead->scan_price . ')' : '';
-            $subject    = 'Complete your ' . $lead->scan_type . ' booking — Unirad Glasgow';
+            // A/B test: rotate subject line by lead ID (even = control, odd = urgency)
+            $subject = ( (int) $lead->id % 2 === 0 )
+                ? 'Complete your ' . $lead->scan_type . ' booking — Unirad Glasgow'
+                : 'URGENT: Your priority MRI slot is expiring soon ⏰';
 
             $b  = '<div style="font-family:Arial,sans-serif;font-size:14px;color:#0d1f3c;max-width:560px">';
             $b .= '<div style="background:#00a896;padding:18px 20px">';

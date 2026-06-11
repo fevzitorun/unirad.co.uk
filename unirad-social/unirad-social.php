@@ -298,16 +298,21 @@ function unirad_social_ajax_generate() {
     $excerpt = wp_trim_words( wp_strip_all_tags( $post->post_content ), 60 );
     $url     = get_permalink( $post_id );
 
-    $prompt = "You are a social media manager for Unirad Diagnostic Imaging, a private MRI clinic in Glasgow, Scotland. Write platform-specific captions for a new blog post.\n\n"
+    $prompt = "You are a conversion-focused social media manager for Unirad Diagnostic Imaging, a private MRI clinic at 22 Loanbank Quadrant, Govan, Glasgow G51 3HZ.\n\n"
         . "Blog post title: {$title}\n"
         . "Blog post excerpt: {$excerpt}\n"
         . "Blog post URL: {$url}\n\n"
         . "Write three captions. Respond ONLY with valid JSON in this exact format:\n"
         . '{"facebook":"...","instagram":"...","linkedin":"..."}'  . "\n\n"
-        . "Guidelines:\n"
-        . "- Facebook: Friendly and informative, 2-3 sentences, include the URL at the end. Mention Glasgow.\n"
-        . "- Instagram: Engaging, use 3-5 relevant emojis, 150-200 chars, end with 5-8 hashtags like #MRIScan #GlasgowHealth #PrivateMRI #Unirad. No URL (mention 'link in bio').\n"
-        . "- LinkedIn: Professional healthcare tone, 2-3 sentences, include the URL. No emojis.\n"
+        . "CONVERSION RULES (mandatory for every caption):\n"
+        . "1. Every caption MUST end with a clear, specific patient benefit — e.g. 'Get your radiologist report in 5 working days' or 'Same-week appointments available in Glasgow'.\n"
+        . "2. Every caption MUST include a direct link or call-to-action pointing patients back to our Glasgow clinic at unirad.co.uk.\n"
+        . "3. Lead with the problem the patient has (e.g. waiting, uncertainty, pain) before the solution.\n"
+        . "4. Use social proof where possible: '5-star rated', 'no referral needed', 'from £290'.\n\n"
+        . "Platform guidelines:\n"
+        . "- Facebook: 2-3 sentences, conversational, mention Glasgow, include the blog post URL at the end.\n"
+        . "- Instagram: 150-220 chars, 3-5 emojis, end with 6-8 hashtags (#MRIScan #GlasgowHealth #PrivateMRI #Unirad #GlasgowMRI #NoReferral). Say 'link in bio' — no bare URL.\n"
+        . "- LinkedIn: Professional healthcare tone, 2-3 sentences, include the URL. No emojis. Target GPs, physios and HR managers who refer patients.\n"
         . "Do not include any text outside the JSON object.";
 
     $response = wp_remote_post( 'https://api.anthropic.com/v1/messages', [
@@ -318,8 +323,8 @@ function unirad_social_ajax_generate() {
             'anthropic-version' => '2023-06-01',
         ],
         'body' => wp_json_encode( [
-            'model'      => 'claude-haiku-4-5',
-            'max_tokens' => 600,
+            'model'      => 'claude-opus-4-8',
+            'max_tokens' => 800,
             'messages'   => [ [ 'role' => 'user', 'content' => $prompt ] ],
         ] ),
     ] );

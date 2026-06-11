@@ -10,22 +10,84 @@ Author:      Unirad
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 // ── API Configuration ────────────────────────────────────────────────────────
-// IMPORTANT: Replace the placeholder with your Anthropic API key.
-// Edit this file locally on your machine, then upload via cPanel/FTP.
-// NEVER share your API key in chat or commit it to version control.
-define( 'UNIRAD_AI_KEY', getenv('UNIRAD_AI_KEY') ?: '' );
-define( 'UNIRAD_AI_MODEL',     'claude-haiku-4-5' );
-define( 'UNIRAD_AI_MAX_TURNS', 20 );   // max messages kept in conversation history
-define( 'UNIRAD_AI_TTL',       3600 ); // seconds to keep conversation history
+// API key is stored securely in the WordPress database (wp_options).
+// Go to WP Admin → 📧 Email Dashboard → 🤖 Aria Settings to enter your key.
+define( 'UNIRAD_AI_MODEL',     'claude-opus-4-8' );
+define( 'UNIRAD_AI_MAX_TURNS', 20 );
+define( 'UNIRAD_AI_TTL',       3600 );
+
+function unirad_ai_get_key() {
+    $opts = get_option( 'unirad_ai_settings', [] );
+    return $opts['api_key'] ?? '';
+}
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
 add_action( 'wp_footer',         'unirad_ai_widget'   );
+add_action( 'admin_menu',        'unirad_ai_settings_menu' );
 add_action( 'wp_ajax_unirad_ai_chat',           'unirad_ai_handle_chat'     );
 add_action( 'wp_ajax_nopriv_unirad_ai_chat',    'unirad_ai_handle_chat'     );
 add_action( 'wp_ajax_unirad_ai_reset',          'unirad_ai_handle_reset'    );
 add_action( 'wp_ajax_nopriv_unirad_ai_reset',   'unirad_ai_handle_reset'    );
 add_action( 'wp_ajax_unirad_ai_callback',       'unirad_ai_handle_callback' );
 add_action( 'wp_ajax_nopriv_unirad_ai_callback','unirad_ai_handle_callback' );
+
+// ── Admin Settings ────────────────────────────────────────────────────────────
+
+function unirad_ai_settings_menu() {
+    add_submenu_page(
+        'unirad-email-dashboard',
+        'Aria AI Settings',
+        '&#129302; Aria Settings',
+        'manage_options',
+        'unirad-aria-settings',
+        'unirad_ai_settings_page'
+    );
+}
+
+function unirad_ai_settings_page() {
+    if ( isset( $_POST['unirad_ai_save'] ) ) {
+        check_admin_referer( 'unirad_ai_save' );
+        $key = sanitize_text_field( wp_unslash( $_POST['api_key'] ?? '' ) );
+        update_option( 'unirad_ai_settings', [ 'api_key' => $key ] );
+        echo '<div class="notice notice-success is-dismissible"><p><strong>Saved.</strong> Aria is now using the new API key.</p></div>';
+    }
+
+    $opts    = get_option( 'unirad_ai_settings', [] );
+    $key     = $opts['api_key'] ?? '';
+    $key_set = ! empty( $key );
+    ?>
+    <div class="wrap" style="max-width:640px;">
+    <h1>&#129302; Aria AI Settings</h1>
+    <p style="color:#555;margin-bottom:24px;">Your Anthropic API key is stored in the WordPress database (wp_options) — it is <strong>never</strong> written to PHP source files or committed to version control.</p>
+
+    <?php if ( ! $key_set ) : ?>
+    <div class="notice notice-warning" style="margin-bottom:20px;"><p>&#9888; No API key set — Aria will not respond until you save a valid key below.</p></div>
+    <?php endif; ?>
+
+    <form method="post">
+    <?php wp_nonce_field( 'unirad_ai_save' ); ?>
+    <table class="form-table" role="presentation">
+      <tr>
+        <th scope="row"><label for="api_key">Anthropic API Key</label></th>
+        <td>
+          <input id="api_key" name="api_key" type="password" class="large-text"
+            value="<?php echo esc_attr( $key ); ?>"
+            placeholder="sk-ant-api03-...">
+          <p class="description">
+            Get your key at <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a>.
+            Model in use: <strong><?php echo esc_html( UNIRAD_AI_MODEL ); ?></strong>
+          </p>
+          <?php if ( $key_set ) : ?>
+          <p style="margin-top:8px;color:#00a896;font-weight:600;">&#10003; Key is set (<?php echo esc_html( substr( $key, 0, 14 ) ); ?>...)</p>
+          <?php endif; ?>
+        </td>
+      </tr>
+    </table>
+    <p><button type="submit" name="unirad_ai_save" class="button button-primary button-large">Save Key</button></p>
+    </form>
+    </div>
+    <?php
+}
 
 // ── Session / History ────────────────────────────────────────────────────────
 
@@ -145,9 +207,9 @@ RULES:
 // ── Anthropic API Call ───────────────────────────────────────────────────────
 
 function unirad_ai_call( array $messages ) {
-    $key = UNIRAD_AI_KEY;
+    $key = unirad_ai_get_key();
 
-    if ( empty( $key ) || $key === 'REPLACE_WITH_YOUR_ANTHROPIC_API_KEY' ) {
+    if ( empty( $key ) ) {
         return [ 'error' => 'API key not configured. Please add your Anthropic key to the plugin file.' ];
     }
 
