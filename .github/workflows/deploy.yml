@@ -26,8 +26,8 @@ jobs:
           username:         ${{ secrets.FTP_USER }}
           password:         ${{ secrets.FTP_PASS }}
           port:             21
-          protocol:         ftp
-          server-dir:       public_html/wp-content/plugins/
+          protocol:         ftps
+          server-dir:       /
           local-dir:        ./
           exclude: |
             **/.git*
