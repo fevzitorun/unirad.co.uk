@@ -282,7 +282,7 @@ function unirad_dash_page() {
 
       <?php if ( ! $key_set ) : ?>
         <div class="ud-notice warn">
-          <strong>Brevo API key not set.</strong> Open <code>unirad-email-dashboard.php</code> on line 14 and replace the placeholder with your Brevo API key (starts with <code>xkeysib-</code>), then re-upload.
+          <strong>Brevo API key not set.</strong> Open <code>unirad-email-dashboard.php</code> on line 14 and replace the placeholder with your Brevo API key (starts with <code>xkeysib-...</code>), then re-upload.
         </div>
       <?php elseif ( is_wp_error( $stats7 ) ) : ?>
         <div class="ud-notice err">
