@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 // ── API Configuration ────────────────────────────────────────────────────────
 // API key is stored securely in the WordPress database (wp_options).
 // Go to WP Admin → 📧 Email Dashboard → 🤖 Aria Settings to enter your key.
-define( 'UNIRAD_AI_MODEL',     'claude-opus-4-8' );
+define( 'UNIRAD_AI_MODEL',     'claude-haiku-4-5' );
 define( 'UNIRAD_AI_MAX_TURNS', 20 );
 define( 'UNIRAD_AI_TTL',       3600 );
 
