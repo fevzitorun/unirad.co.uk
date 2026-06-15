@@ -22,6 +22,7 @@ function unirad_ai_get_key() {
 }
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────
+register_activation_hook( __FILE__, 'unirad_ai_create_tables' );
 add_action( 'wp_footer',         'unirad_ai_widget'   );
 add_action( 'admin_menu',        'unirad_ai_settings_menu' );
 add_action( 'wp_ajax_unirad_ai_chat',           'unirad_ai_handle_chat'     );
@@ -30,6 +31,89 @@ add_action( 'wp_ajax_unirad_ai_reset',          'unirad_ai_handle_reset'    );
 add_action( 'wp_ajax_nopriv_unirad_ai_reset',   'unirad_ai_handle_reset'    );
 add_action( 'wp_ajax_unirad_ai_callback',       'unirad_ai_handle_callback' );
 add_action( 'wp_ajax_nopriv_unirad_ai_callback','unirad_ai_handle_callback' );
+
+// ── DB Table ─────────────────────────────────────────────────────────────────
+function unirad_ai_create_tables() {
+    global $wpdb;
+    $table   = $wpdb->prefix . 'unirad_chat_logs';
+    $charset = $wpdb->get_charset_collate();
+    $sql     = "CREATE TABLE IF NOT EXISTS {$table} (
+        id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        session_id   VARCHAR(64)     NOT NULL,
+        messages     LONGTEXT        NOT NULL,
+        scan_mention VARCHAR(120)    DEFAULT '',
+        has_callback TINYINT(1)      DEFAULT 0,
+        turn_count   SMALLINT        DEFAULT 0,
+        ip           VARCHAR(45)     DEFAULT '',
+        created_at   DATETIME        NOT NULL,
+        updated_at   DATETIME        NOT NULL,
+        PRIMARY KEY (id),
+        KEY session_id (session_id),
+        KEY created_at (created_at)
+    ) {$charset};";
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta( $sql );
+}
+
+// Ensure table exists on every request (handles re-activation or manual plugin installs)
+function unirad_ai_maybe_create_tables() {
+    global $wpdb;
+    if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$wpdb->prefix}unirad_chat_logs'" ) ) {
+        unirad_ai_create_tables();
+    }
+}
+add_action( 'init', 'unirad_ai_maybe_create_tables' );
+
+// ── Chat Log Helpers ─────────────────────────────────────────────────────────
+function unirad_ai_upsert_log( array $history, bool $has_callback = false ) {
+    global $wpdb;
+    $table      = $wpdb->prefix . 'unirad_chat_logs';
+    $session_id = unirad_ai_session_key();
+    $now        = current_time( 'mysql' );
+    $turns      = (int) floor( count( $history ) / 2 );
+    $ip         = sanitize_text_field( $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '' );
+
+    // Detect scan mentions from recent user messages
+    $scan_mention = '';
+    $scan_terms   = [ 'brain','spine','knee','hip','shoulder','ankle','wrist','elbow','foot','pelvis','abdomen','chest','prostate','back','neck','head','mri' ];
+    $user_text    = implode( ' ', array_column(
+        array_filter( $history, fn($m) => $m['role'] === 'user' ),
+        'content'
+    ) );
+    foreach ( $scan_terms as $term ) {
+        if ( stripos( $user_text, $term ) !== false ) {
+            $scan_mention = $term;
+            break;
+        }
+    }
+
+    $existing = $wpdb->get_var( $wpdb->prepare(
+        "SELECT id FROM {$table} WHERE session_id = %s LIMIT 1", $session_id
+    ) );
+
+    if ( $existing ) {
+        $wpdb->update( $table, [
+            'messages'     => wp_json_encode( $history ),
+            'scan_mention' => $scan_mention,
+            'has_callback' => $has_callback ? 1 : (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT has_callback FROM {$table} WHERE session_id = %s LIMIT 1", $session_id
+            ) ),
+            'turn_count'   => $turns,
+            'updated_at'   => $now,
+        ], [ 'session_id' => $session_id ] );
+    } else {
+        $wpdb->insert( $table, [
+            'session_id'   => $session_id,
+            'messages'     => wp_json_encode( $history ),
+            'scan_mention' => $scan_mention,
+            'has_callback' => $has_callback ? 1 : 0,
+            'turn_count'   => $turns,
+            'ip'           => $ip,
+            'created_at'   => $now,
+            'updated_at'   => $now,
+        ] );
+    }
+}
 
 // ── Admin Settings ────────────────────────────────────────────────────────────
 
@@ -272,6 +356,7 @@ function unirad_ai_handle_chat() {
     $reply      = $result['text'];
     $history[]  = [ 'role' => 'assistant', 'content' => $reply ];
     unirad_ai_save_history( $history );
+    unirad_ai_upsert_log( $history );
 
     $turn_count = (int) floor( count( $history ) / 2 );
 
@@ -313,6 +398,12 @@ function unirad_ai_handle_callback() {
 
     if ( $phone === '' ) {
         wp_send_json_error( 'Phone number required.' );
+    }
+
+    // Mark chat log as converted (callback submitted)
+    $current_history = unirad_ai_get_history();
+    if ( ! empty( $current_history ) ) {
+        unirad_ai_upsert_log( $current_history, true );
     }
 
     // Save to abandoned leads table if the booking plugin's table exists
