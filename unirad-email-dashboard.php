@@ -36,6 +36,15 @@ function unirad_dash_menu() {
         'dashicons-email-alt',
         57
     );
+    // First submenu must share parent slug so clicking parent goes here (not Aria Settings)
+    add_submenu_page(
+        'unirad-email-dashboard',
+        'Email Dashboard',
+        '📊 Overview',
+        'manage_options',
+        'unirad-email-dashboard',
+        'unirad_dash_page'
+    );
     add_submenu_page(
         'unirad-email-dashboard',
         'API Keys',
