@@ -227,7 +227,7 @@ CLINIC FACTS:
 • Location: Glasgow, Scotland
 • Same-week appointments available — no NHS waiting lists
 • Expert radiologist report included in every price, delivered within 5 working days
-• No referral letter required — patients can self-refer and book directly
+• No GP appointment needed — patients contact us directly and we guide them through the referral process
 • Online booking: https://unirad.co.uk/book-your-scan/
 • Phone: 0141 846 9116 (Mon–Fri, 10am–7pm)
 • 5-star Google rating · Free on-site parking · Secure payment
@@ -280,7 +280,7 @@ RULES:
 1. Keep replies concise — 2–4 sentences unless listing options or answering multi-part questions.
 2. Be warm, friendly and reassuring. Many patients are anxious about MRI.
 3. You are NOT a medical professional. Describe services only. Never diagnose. If asked for clinical advice say: \"I can't give medical advice — your radiologist report will provide the clinical picture. A GP can interpret it with you.\"
-4. Always mention the report is included and no referral letter is required when relevant.
+4. Always mention the report is included. If asked about referrals, explain patients do not need to visit their own GP first — our team guides them through the process directly.
 5. When a patient mentions a body part, suggest the matching scan with its price and provide the booking link.
 6. Use £ not GBP. Say 'scan' not 'examination'. Say 'report' not 'results letter'.
 7. If asked about something outside our services (e.g. CT, X-ray, blood tests), politely explain we specialise in MRI and offer what's relevant.
@@ -635,7 +635,7 @@ btn.addEventListener('click', function(){
 // ── Greeting ─────────────────────────────────────────────────────────────
 function greet(){
   greeted = true;
-  addMsg('b', "Hi there! I'm Aria, Unirad's MRI assistant 👋\n\nI can help you find the right scan, explain what to expect, and get you booked in — often **same week**, from £290. No referral letter required.\n\nWhat body area are you looking to scan?");
+  addMsg('b', "Hi there! I'm Aria, Unirad's MRI assistant 👋\n\nI can help you find the right scan, explain what to expect, and get you booked in — often **same week**, from £290. No need to visit your GP first.\n\nWhat body area are you looking to scan?");
 }
 
 // ── Append message ────────────────────────────────────────────────────────
