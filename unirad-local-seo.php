@@ -279,7 +279,7 @@ function unirad_seo_create_pages() {
 
         // Yoast SEO meta
         $yoast_title = 'Private MRI Scan Serving ' . $loc['name'] . ' | From £290 | Unirad Glasgow';
-        $yoast_desc  = 'Private MRI scan for ' . $loc['name'] . ' patients from £290. Same-week appointments, book without a GP visit. Expert radiologist report in 5 days. Just ' . $loc['mins'] . ' minutes from ' . $loc['name'] . '.';
+        $yoast_desc  = 'Private MRI scan for ' . $loc['name'] . ' patients from £290. Same-week appointments, self-referral available for selected scans. Expert radiologist report in 5 days. Just ' . $loc['mins'] . ' minutes from ' . $loc['name'] . '.';
         update_post_meta( $post_id, '_yoast_wpseo_title',    $yoast_title );
         update_post_meta( $post_id, '_yoast_wpseo_metadesc', $yoast_desc );
         update_post_meta( $post_id, '_yoast_wpseo_focuskw',  'private MRI scan ' . strtolower( $loc['name'] ) );
@@ -346,7 +346,7 @@ function unirad_seo_template_redirect() {
             [
                 '@type'      => 'FAQPage',
                 'mainEntity' => [
-                    [ '@type' => 'Question', 'name' => 'Do I need to see my GP before booking an MRI scan?', 'acceptedAnswer' => [ '@type' => 'Answer', 'text' => 'You do not need to visit your own GP first. A clinical referral letter is required, but our team can guide you through this process — simply contact us and we will advise you on the next steps.' ] ],
+                    [ '@type' => 'Question', 'name' => 'Do I need to see my GP before booking an MRI scan?', 'acceptedAnswer' => [ '@type' => 'Answer', 'text' => 'Self-referral is available for selected scans — you do not need to visit your own GP first. Our clinical team assesses your suitability and advises on the most appropriate scan before confirming your booking.' ] ],
                     [ '@type' => 'Question', 'name' => 'How far is Unirad from ' . $name . '?', 'acceptedAnswer' => [ '@type' => 'Answer', 'text' => 'Unirad is approximately ' . $miles . ' miles from ' . $name . ', around ' . $mins . ' minutes by car. ' . $transport ] ],
                     [ '@type' => 'Question', 'name' => 'How quickly can I get an MRI?', 'acceptedAnswer' => [ '@type' => 'Answer', 'text' => 'Same-week appointments are usually available. Book online and you can often be seen within 2-3 days.' ] ],
                     [ '@type' => 'Question', 'name' => 'How long does it take to get my results?', 'acceptedAnswer' => [ '@type' => 'Answer', 'text' => 'Your written radiologist report is delivered within 5 working days. Urgent 24–48 hour turnaround is available on request.' ] ],
@@ -493,11 +493,11 @@ a:hover{text-decoration:underline;}
   <div class="un-hero-inner">
     <div class="un-breadcrumb"><a href="https://unirad.co.uk">Unirad</a> › <a href="https://unirad.co.uk">Private MRI Glasgow</a> › <?php echo esc_html( $name ); ?></div>
     <h1>Private MRI Scan<br>Serving <em><?php echo esc_html( $name ); ?></em></h1>
-    <p class="un-hero-sub"><?php echo esc_html( $blurb ); ?> Book your scan for this week — no GP appointment needed, and your radiologist report is ready in 5 working days.</p>
+    <p class="un-hero-sub"><?php echo esc_html( $blurb ); ?> Book your scan for this week — self-referral available for selected scans, and your radiologist report is ready in 5 working days.</p>
     <div class="un-hero-pills">
       <span class="un-pill"><b>£290</b> from</span>
       <span class="un-pill">&#9733; 5-star rated</span>
-      <span class="un-pill">&#10003; Book Without GP Visit</span>
+      <span class="un-pill">&#10003; Self-Referral Available</span>
       <span class="un-pill">&#128338; Report in 5 days</span>
       <?php if ( $miles > 0 ) : ?>
       <span class="un-pill"><b><?php echo esc_html( $mins ); ?> min</b> from <?php echo esc_html( $name ); ?></span>
@@ -512,7 +512,7 @@ a:hover{text-decoration:underline;}
   <div class="un-stat"><b>175+</b> scans this month</div>
   <div class="un-stat"><b>98.9%</b> delivery rate</div>
   <div class="un-stat"><b>5</b> day report turnaround</div>
-  <div class="un-stat"><b>0</b> GP referral needed</div>
+  <div class="un-stat"><b>&#10003;</b> Self-referral available</div>
 </div>
 
 <div class="un-section">
@@ -562,7 +562,7 @@ a:hover{text-decoration:underline;}
     </div>
     <div class="un-benefit">
       <div class="un-benefit-icon">&#128203;</div>
-      <div class="un-benefit-text"><b>Book without a GP appointment</b><span>Contact us directly — we guide you through the referral process</span></div>
+      <div class="un-benefit-text"><b>Self-referral available for selected scans</b><span>Our clinical team assesses your suitability before confirming your booking</span></div>
     </div>
     <div class="un-benefit">
       <div class="un-benefit-icon">&#128663;</div>
@@ -600,7 +600,7 @@ a:hover{text-decoration:underline;}
   <div class="un-faq">
     <div class="un-faq-item">
       <div class="un-faq-q">Do I need to see my GP before booking an MRI scan?</div>
-      <div class="un-faq-a">You do not need to visit your own GP first. A clinical referral letter is required for your MRI scan, but our team can guide you through this process directly — simply contact us and we will advise you on the next steps. This is one of the main reasons patients from <?php echo esc_html( $name ); ?> choose Unirad.</div>
+      <div class="un-faq-a">Self-referral is available for selected scans — you do not need to visit your own GP first. Our clinical team will assess your suitability and advise on the most appropriate scan before confirming your booking. This is one of the main reasons patients from <?php echo esc_html( $name ); ?> choose Unirad.</div>
     </div>
     <div class="un-faq-item">
       <div class="un-faq-q">How far is Unirad from <?php echo esc_html( $name ); ?>?</div>
@@ -647,7 +647,7 @@ a:hover{text-decoration:underline;}
   <h2>Book Your MRI Scan Today</h2>
   <p>Serving <?php echo esc_html( $name ); ?> and surrounding areas &middot; Same-week availability &middot; From £290</p>
   <a href="<?php echo esc_url( $book_url ); ?>">Book Online Now &rarr;</a>
-  <p class="un-cta-sub">Book without a GP appointment &middot; Radiologist report included &middot; Free parking</p>
+  <p class="un-cta-sub">Self-referral available for selected scans &middot; Radiologist report included &middot; Free parking</p>
 </div>
 
 <div class="un-section-wide">

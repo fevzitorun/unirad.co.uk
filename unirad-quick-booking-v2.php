@@ -2052,7 +2052,7 @@ document.addEventListener("uqb:preselect", function(e) {
             $b .= '<div style="background:#f0fdfa;border-left:4px solid #00a896;padding:14px 16px;margin-bottom:20px;border-radius:0 6px 6px 0">';
             $b .= '<p style="margin:0 0 8px;font-weight:bold;color:#065f46">Your slot is waiting — appointments available this week:</p>';
             $b .= '<ul style="margin:0;padding-left:18px;font-size:13px;color:#374151;line-height:2.2">';
-            $b .= '<li>Book without a GP appointment — we guide you through the process</li>';
+            $b .= '<li>Self-referral available for selected scans — our clinical team assesses your suitability before booking</li>';
             $b .= '<li>Radiologist report within 5 working days</li>';
             $b .= '<li>Secure online payment — Apple Pay &amp; Google Pay accepted</li>';
             $b .= '</ul>';

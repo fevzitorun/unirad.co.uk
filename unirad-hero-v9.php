@@ -308,7 +308,7 @@ function uhr9_render(){
     <div class="uhr9-trust">
       <div class="uhr9-pill"><span class="uhr9-pill-ic">&#10003;</span>Radiologist Report Included</div>
       <div class="uhr9-pill"><span class="uhr9-pill-ic">&#10003;</span>From &pound;290 &middot; No Hidden Fees</div>
-      <div class="uhr9-pill"><span class="uhr9-pill-ic">&#10003;</span>Book Without a GP Appointment</div>
+      <div class="uhr9-pill"><span class="uhr9-pill-ic">&#10003;</span>Self-Referral Available</div>
     </div>
 
     <!-- Mobile trust strip -->
@@ -317,7 +317,7 @@ function uhr9_render(){
         <div class="uhr9-tmcard"><span class="uhr9-tmcard-n">5d</span><span class="uhr9-tmcard-l">Report</span></div>
         <div class="uhr9-tmcard"><span class="uhr9-tmcard-n">5&#9733;</span><span class="uhr9-tmcard-l">Google</span></div>
         <div class="uhr9-tmcard"><span class="uhr9-tmcard-n">&pound;290</span><span class="uhr9-tmcard-l">From</span></div>
-        <div class="uhr9-tmcard"><span class="uhr9-tmcard-n">&#10003;</span><span class="uhr9-tmcard-l">Direct Book</span></div>
+        <div class="uhr9-tmcard"><span class="uhr9-tmcard-n">&#10003;</span><span class="uhr9-tmcard-l">Self-Ref</span></div>
         <div class="uhr9-tmcard"><span class="uhr9-tmcard-n">&#10003;</span><span class="uhr9-tmcard-l">Instant</span></div>
       </div>
     </div>
