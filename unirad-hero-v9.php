@@ -175,14 +175,23 @@ echo '<style>
   .uhr9-trust-strip{gap:10px;font-size:10px;}
 }
 
-/* ── Dark mode: logo visibility fix ────────────────────────────────────────
-   Targets common WordPress logo selectors. If your theme uses a different
-   class, add it to the list below.
-   - brightness(0) invert(1) turns a dark logo solid white (cleanest result
-     for monochrome / dark-text logos on transparent backgrounds).
-   - drop-shadow adds a subtle glow so coloured logos still read on dark bg.
+/* ── Logo visibility: always white on dark site header ──────────────────────
+   The site header is always dark, so we apply the white filter universally
+   (not just in OS dark mode). brightness(0) invert(1) converts any dark logo
+   to solid white — works for PNG and SVG alike.
    ────────────────────────────────────────────────────────────────────────── */
-@media (prefers-color-scheme: dark) {
+.custom-logo-link img,
+img.custom-logo,
+.site-branding img,
+.site-branding a img,
+header .logo img,
+.header-logo img,
+#site-logo img,
+.navbar-brand img,
+.site-logo img {
+  filter: brightness(0) invert(1);
+}
+@media (max-width: 768px) {
   .custom-logo-link img,
   img.custom-logo,
   .site-branding img,
@@ -190,16 +199,11 @@ echo '<style>
   header .logo img,
   .header-logo img,
   #site-logo img,
-  .navbar-brand img {
-    filter: brightness(0) invert(1) drop-shadow(0 0 3px rgba(255,255,255,.25));
-  }
-  /* Wrapper: add subtle semi-transparent bg so the logo area stands out */
-  .custom-logo-link,
-  .site-branding .logo-link {
-    display: inline-flex;
-    background: rgba(255,255,255,.06);
-    border-radius: 6px;
-    padding: 4px 8px;
+  .navbar-brand img,
+  .site-logo img {
+    filter: brightness(0) invert(1);
+    max-height: 48px;
+    width: auto;
   }
 }
 </style>';
