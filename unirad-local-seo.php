@@ -570,7 +570,7 @@ a:hover{text-decoration:underline;}
     </div>
     <div class="un-benefit">
       <div class="un-benefit-icon">&#9995;</div>
-      <div class="un-benefit-text"><b>Wide-bore scanner</b><span>More comfortable for claustrophobic patients</span></div>
+      <div class="un-benefit-text"><b>Experienced, reassuring team</b><span>Our staff support anxious and claustrophobic patients throughout every scan</span></div>
     </div>
     <div class="un-benefit">
       <div class="un-benefit-icon">&#11088;</div>
@@ -583,7 +583,7 @@ a:hover{text-decoration:underline;}
     <?php
     $testimonials = [
       [ 'q' => 'No GP letter needed — appointment same week. MRI was quick and my report arrived in 4 days. Excellent service.', 'a' => 'Sarah M.' ],
-      [ 'q' => 'I was nervous about MRI but the team put me at ease immediately. The wide-bore scanner made a real difference. Would highly recommend.', 'a' => 'James K.' ],
+      [ 'q' => 'I was really nervous about having an MRI but the team were so patient and reassuring. They talked me through every step and I felt completely supported. Would highly recommend.', 'a' => 'James K.' ],
       [ 'q' => 'Lumbar spine scan from £290 — half the price I was quoted elsewhere. Radiologist report was detailed and my physio was very impressed.', 'a' => 'C. Thomson' ],
     ];
     foreach ( $testimonials as $t ) :
@@ -620,7 +620,7 @@ a:hover{text-decoration:underline;}
     </div>
     <div class="un-faq-item">
       <div class="un-faq-q">I'm claustrophobic — can I still have an MRI?</div>
-      <div class="un-faq-a">Yes. We use a wide-bore scanner which has a much larger opening than standard MRI machines. Most claustrophobic patients find it comfortable. Mention this when booking so we can prepare.</div>
+      <div class="un-faq-a">Yes, many patients with claustrophobia complete their scan successfully with the right preparation and support. Please let us know when booking — our team will take extra time to prepare you, explain each stage, and ensure you feel in control. In some cases your GP may recommend a mild relaxant beforehand. If you have concerns, call us on 0141 846 9116 to discuss before booking.</div>
     </div>
   </div>
 

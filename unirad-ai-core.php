@@ -249,7 +249,7 @@ GP SERVICES:
 COMMON QUESTIONS:
 Q: Do I need a referral? A: Self-referral is available for selected scans — our clinical team will assess your suitability and advise on the most appropriate scan before confirming your booking.
 Q: How do I prepare? A: Remove metal jewellery, wear comfortable clothing. For abdominal/MRCP scans fast for 4 hours. Most other scans need no prep.
-Q: I'm claustrophobic. A: We use a wide-bore scanner (larger opening) which most patients find comfortable. Mention claustrophobia when booking so we can assist.
+Q: I'm claustrophobic. A: Please mention this when booking so our clinical team can prepare and support you. Our staff are experienced in helping anxious patients. In some cases, your GP can prescribe a mild anxiolytic (e.g. diazepam) to take before the scan — we recommend discussing this with your doctor ahead of your appointment.
 Q: Will I need an injection (contrast)? A: Some scans use gadolinium contrast — we confirm this at booking. No fasting needed for contrast.
 Q: How long does a scan take? A: Most take 30–60 minutes including positioning.
 Q: When will I get my report? A: Written radiologist report within 5 working days. Urgent 24–48 hr turnaround available on request.
