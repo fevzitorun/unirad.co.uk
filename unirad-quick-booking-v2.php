@@ -133,6 +133,7 @@ class Unirad_Quick_Booking_V2 {
         add_action( 'wp_ajax_nopriv_unirad_qb2_save_lead',   array( __CLASS__, 'ajax_save_lead' ) );
         add_action( 'wp_ajax_unirad_qb2_claustro_hold',      array( __CLASS__, 'ajax_claustro_hold' ) );
         add_action( 'wp_ajax_nopriv_unirad_qb2_claustro_hold', array( __CLASS__, 'ajax_claustro_hold' ) );
+        add_action( 'wp_ajax_uqb_get_custom_titles',          array( __CLASS__, 'ajax_get_custom_titles' ) );
         add_action( 'uqb_abandoned_recovery_cron',         array( __CLASS__, 'send_abandoned_recovery_emails' ) );
         if ( ! wp_next_scheduled( 'uqb_abandoned_recovery_cron' ) ) {
             wp_schedule_event( time(), 'hourly', 'uqb_abandoned_recovery_cron' );
@@ -387,6 +388,29 @@ class Unirad_Quick_Booking_V2 {
         }
 
         wp_send_json_success( array( 'slots' => array_values( $slots ) ) );
+    }
+
+    // ── Custom titles for Bookly calendar JS patch ───────────
+    public static function ajax_get_custom_titles() {
+        check_ajax_referer( 'uqb_custom_titles', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+        global $wpdb;
+        $bt = $wpdb->prefix . 'bookly_appointments';
+        if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$bt}'" ) ) {
+            wp_send_json_success( [] );
+            return;
+        }
+        $rows = $wpdb->get_results(
+            "SELECT id, custom_service_name FROM {$bt}
+             WHERE custom_service_name != ''
+             AND start_date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+             LIMIT 1000"
+        );
+        $map = [];
+        foreach ( $rows as $row ) {
+            $map[ (int) $row->id ] = $row->custom_service_name;
+        }
+        wp_send_json_success( $map );
     }
 
     // ── Claustrophobia hold ──────────────────────────────────
@@ -855,10 +879,43 @@ class Unirad_Quick_Booking_V2 {
     // Inject CSS to ensure Bookly shows custom_service_name prominently
     public static function bookly_admin_calendar_css() {
         if ( ! isset( $_GET['page'] ) || strpos( $_GET['page'], 'bookly' ) === false ) return;
+        $nonce = wp_create_nonce( 'uqb_custom_titles' );
         ?>
         <style>
         .fc-event .fc-title { font-size: 11px !important; }
+        .uqb-scan-badge { display:inline-block;background:#00a896;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:4px;vertical-align:middle; }
         </style>
+        <script>
+        (function($){
+            var titleMap = {};
+            // Load custom scan names from our DB
+            $.post(ajaxurl, {action:'uqb_get_custom_titles', nonce:'<?php echo esc_js( $nonce ); ?>'}, function(r){
+                if(r && r.success) { titleMap = r.data; applyTitles(); }
+            });
+            function applyTitles(){
+                // Patch FullCalendar event titles by data-id attribute
+                $('.fc-event').each(function(){
+                    var id = $(this).data('id') || $(this).attr('data-id');
+                    if(id && titleMap[id]){
+                        var t = $(this).find('.fc-title');
+                        if(t.length) t.text(titleMap[id]);
+                    }
+                });
+            }
+            $(document).ready(function(){
+                setTimeout(applyTitles, 1500);
+                // Re-apply on calendar navigation (FullCalendar re-renders events)
+                var container = document.querySelector('.fc-view-container,.fc-view,.bookly-js-calendar');
+                if(container){
+                    var obs = new MutationObserver(function(){
+                        clearTimeout(window._uqbPatch);
+                        window._uqbPatch = setTimeout(applyTitles, 400);
+                    });
+                    obs.observe(container, {childList:true, subtree:true});
+                }
+            });
+        })(jQuery);
+        </script>
         <?php
     }
 
