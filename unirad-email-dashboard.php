@@ -621,7 +621,7 @@ function unirad_dash_page() {
             ?>
               <tr style="background:#fff5f5;">
                 <td class="mono"><?php echo esc_html( $dt ); ?></td>
-                <td style="font-weight:600;"><?php echo esc_html( $row->name ?? $row->patient_name ?? '—' ); ?></td>
+                <td style="font-weight:600;"><?php echo esc_html( $row->name ?? '—' ); ?></td>
                 <td><a href="tel:<?php echo esc_attr( $row->phone ?? '' ); ?>" style="color:#991b1b;font-weight:700;font-size:13px;">📞 <?php echo esc_html( $row->phone ?? '—' ); ?></a></td>
                 <td style="font-size:11.5px;"><?php echo esc_html( $row->email ?? '—' ); ?></td>
                 <td style="font-size:11.5px;"><?php echo esc_html( $row->scan_type ?? '—' ); ?></td>

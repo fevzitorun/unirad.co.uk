@@ -402,13 +402,12 @@ class Unirad_Quick_Booking_V2 {
         $table = $wpdb->prefix . 'unirad_potential_bookings';
         if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) === $table ) {
             $wpdb->insert( $table, array(
-                'patient_name' => $name,
-                'email'        => $email,
-                'phone'        => $phone,
-                'scan_type'    => $scan,
-                'scan_price'   => '',
-                'status'       => 'claustrophobia_hold',
-                'created_at'   => current_time( 'mysql' ),
+                'name'       => $name,
+                'email'      => $email,
+                'phone'      => $phone,
+                'scan_type'  => $scan,
+                'scan_price' => '',
+                'status'     => 'claustrophobia_hold',
             ) );
         }
 
@@ -1939,7 +1938,7 @@ function init(){
       scan:selLabel()
     })}).then(function(){
       var block=q("#uqb-claustro-block");
-      if(block)block.innerHTML="<div class=\"uqb-claustro-warn\" style=\"text-align:center;padding:24px\"><div style=\"font-size:32px\">&#128222;</div><div style=\"font-weight:700;color:#065f46;font-size:15px;margin:10px 0 6px\">We'll call you shortly!</div><p style=\"font-size:13px;color:#374151;margin:0\">A member of our team will be in touch within 1 working hour to discuss your scan. Thank you for letting us know.</p></div>";
+      if(block)block.innerHTML="<div class=\"uqb-claustro-warn\" style=\"text-align:center;padding:24px\"><div style=\"font-size:32px\">&#128222;</div><div style=\"font-weight:700;color:#065f46;font-size:15px;margin:10px 0 6px\">We\'ll call you shortly!</div><p style=\"font-size:13px;color:#374151;margin:0\">A member of our team will be in touch within 1 working hour to discuss your scan. Thank you for letting us know.</p></div>";
     }).catch(function(){claustroBtn.disabled=false;claustroBtn.textContent="📞 Request a Clinical Call →";alert("Error submitting. Please call us directly on 0141 846 9116.");});
   });
   ROOT.querySelectorAll("[name=\"pt_prev_exam\"]").forEach(function(r){r.addEventListener("change",function(){var v=ROOT.querySelector("[name=\"pt_prev_exam\"]:checked");var box=q("#uqb-prev-exam-upload");if(box)box.style.display=(v&&v.value!=="No")?"block":"none";});});
