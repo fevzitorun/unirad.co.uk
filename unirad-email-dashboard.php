@@ -586,6 +586,52 @@ function unirad_dash_page() {
         <?php endif; ?>
       </div>
 
+      <?php
+      // ── Claustrophobia Pending Calls ─────────────────────────────────────────
+      $pb_table   = $wpdb->prefix . 'unirad_potential_bookings';
+      $claustro   = [];
+      if ( $wpdb->get_var( "SHOW TABLES LIKE '{$pb_table}'" ) === $pb_table ) {
+          $claustro = $wpdb->get_results(
+              $wpdb->prepare( "SELECT * FROM {$pb_table} WHERE status = %s ORDER BY created_at DESC LIMIT 50", 'claustrophobia_hold' )
+          );
+      }
+      ?>
+      <div class="ud-section" style="border-left:4px solid #991b1b;">
+        <div class="ud-section-hd">
+          <h2>📞 Pending Clinical Calls <span style="font-size:11px;color:#aaa;font-weight:400;">(claustrophobia holds)</span></h2>
+          <span class="ud-hint">Patients who declared claustrophobia — call before confirming booking</span>
+        </div>
+        <?php if ( empty( $claustro ) ) : ?>
+          <div class="ud-notice" style="background:#f0fdf4;border-color:#86efac;color:#166534;">&#10003; No pending calls — all claustrophobia enquiries have been handled.</div>
+        <?php else : ?>
+          <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#991b1b;font-weight:600;">
+            ⚠️ <?php echo count( $claustro ); ?> patient(s) awaiting a clinical call. Do not confirm booking until reviewed.
+          </div>
+          <table class="ud-table">
+            <thead><tr>
+              <th>Date</th>
+              <th>Patient</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Scan</th>
+            </tr></thead>
+            <tbody>
+            <?php foreach ( $claustro as $row ) :
+              $dt = wp_date( 'd M Y, H:i', strtotime( $row->created_at ) );
+            ?>
+              <tr style="background:#fff5f5;">
+                <td class="mono"><?php echo esc_html( $dt ); ?></td>
+                <td style="font-weight:600;"><?php echo esc_html( $row->name ?? $row->patient_name ?? '—' ); ?></td>
+                <td><a href="tel:<?php echo esc_attr( $row->phone ?? '' ); ?>" style="color:#991b1b;font-weight:700;font-size:13px;">📞 <?php echo esc_html( $row->phone ?? '—' ); ?></a></td>
+                <td style="font-size:11.5px;"><?php echo esc_html( $row->email ?? '—' ); ?></td>
+                <td style="font-size:11.5px;"><?php echo esc_html( $row->scan_type ?? '—' ); ?></td>
+              </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php endif; ?>
+      </div>
+
     </div><!-- #unirad-dash -->
 
     <script>

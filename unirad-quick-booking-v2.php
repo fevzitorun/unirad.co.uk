@@ -129,8 +129,10 @@ class Unirad_Quick_Booking_V2 {
         add_action( 'woocommerce_order_status_processing',          array( __CLASS__, 'send_patient_confirmation' ), 20, 1 );
 
         // ── Abandoned Booking Recovery ────────────────────────
-        add_action( 'wp_ajax_unirad_qb2_save_lead',        array( __CLASS__, 'ajax_save_lead' ) );
-        add_action( 'wp_ajax_nopriv_unirad_qb2_save_lead', array( __CLASS__, 'ajax_save_lead' ) );
+        add_action( 'wp_ajax_unirad_qb2_save_lead',          array( __CLASS__, 'ajax_save_lead' ) );
+        add_action( 'wp_ajax_nopriv_unirad_qb2_save_lead',   array( __CLASS__, 'ajax_save_lead' ) );
+        add_action( 'wp_ajax_unirad_qb2_claustro_hold',      array( __CLASS__, 'ajax_claustro_hold' ) );
+        add_action( 'wp_ajax_nopriv_unirad_qb2_claustro_hold', array( __CLASS__, 'ajax_claustro_hold' ) );
         add_action( 'uqb_abandoned_recovery_cron',         array( __CLASS__, 'send_abandoned_recovery_emails' ) );
         if ( ! wp_next_scheduled( 'uqb_abandoned_recovery_cron' ) ) {
             wp_schedule_event( time(), 'hourly', 'uqb_abandoned_recovery_cron' );
@@ -385,6 +387,45 @@ class Unirad_Quick_Booking_V2 {
         }
 
         wp_send_json_success( array( 'slots' => array_values( $slots ) ) );
+    }
+
+    // ── Claustrophobia hold ──────────────────────────────────
+    public static function ajax_claustro_hold() {
+        check_ajax_referer( 'uqb2_nonce', 'nonce' );
+
+        $name  = sanitize_text_field( isset( $_POST['name']  ) ? $_POST['name']  : 'Not provided' );
+        $phone = sanitize_text_field( isset( $_POST['phone'] ) ? $_POST['phone'] : '' );
+        $email = sanitize_email(      isset( $_POST['email'] ) ? $_POST['email'] : '' );
+        $scan  = sanitize_text_field( isset( $_POST['scan']  ) ? $_POST['scan']  : '' );
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'unirad_potential_bookings';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) === $table ) {
+            $wpdb->insert( $table, array(
+                'patient_name' => $name,
+                'email'        => $email,
+                'phone'        => $phone,
+                'scan_type'    => $scan,
+                'scan_price'   => '',
+                'status'       => 'claustrophobia_hold',
+                'created_at'   => current_time( 'mysql' ),
+            ) );
+        }
+
+        $subj  = '📞 Claustrophobia Hold — Clinical Call Required: ' . $name;
+        $body  = '<div style="font-family:Arial,sans-serif;max-width:520px">';
+        $body .= '<div style="background:#991b1b;color:#fff;padding:12px 16px;font-weight:bold;font-size:14px">⚠️ Claustrophobia Hold — Call Required</div>';
+        $body .= '<div style="padding:16px;border:1px solid #fca5a5;border-top:none;border-radius:0 0 8px 8px">';
+        $body .= '<p style="margin:0 0 12px;color:#374151"><strong>Action required:</strong> Call this patient to discuss their scan suitability before confirming any booking.</p>';
+        $body .= uqb_row( 'Patient', $name );
+        $body .= uqb_row( 'Phone',   $phone );
+        $body .= uqb_row( 'Email',   $email );
+        $body .= uqb_row( 'Scan',    $scan  );
+        $body .= '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px;margin-top:14px;font-size:12px;color:#7f1d1d">Patient declared significant claustrophobia. Do NOT proceed with booking until a clinical review call has been completed.</div>';
+        $body .= '</div></div>';
+
+        self::brevo_send( UQB_NOTIFY_EMAIL, 'Unirad Team', $subj, $body );
+        wp_send_json_success();
     }
 
     // ── Callback (no payment) ────────────────────────────────
@@ -1344,6 +1385,26 @@ class Unirad_Quick_Booking_V2 {
         <span class="uqb-sq-q">Do you have any metal in your body from surgery or injury?</span>
         <div class="uqb-yn"><label><input type="radio" name="sq_metal_body" value="No" checked> No</label><label><input type="radio" name="sq_metal_body" value="Yes"> Yes</label></div>
       </div>
+      <div class="uqb-sq-row uqb-sq-row--highlight">
+        <span class="uqb-sq-q">Do you experience claustrophobia or significant anxiety in enclosed spaces?</span>
+        <div class="uqb-yn uqb-yn--three">
+          <label><input type="radio" name="sq_claustro" value="No" checked> No</label>
+          <label><input type="radio" name="sq_claustro" value="Mild"> Mild</label>
+          <label><input type="radio" name="sq_claustro" value="Yes"> Yes</label>
+        </div>
+      </div>
+      <div id="uqb-claustro-block" style="display:none">
+        <div class="uqb-claustro-warn">
+          <div class="uqb-claustro-title">&#9888; Clinical Review Required</div>
+          <p class="uqb-claustro-msg">Thank you for letting us know. One of our clinical team will call you within 1 working hour to discuss your scan and ensure we can support you. Please confirm your phone number below — no payment is taken at this stage.</p>
+          <div class="uqb-f">
+            <label>Best phone number to reach you *</label>
+            <input type="tel" id="claustro_phone" placeholder="+44 7xxx xxxxxx">
+          </div>
+          <button type="button" id="uqbClaustroSubmit" class="uqb-btn uqb-btn--red">&#128222; Request a Clinical Call &rarr;</button>
+          <p class="uqb-claustro-note">Your scan enquiry will be held pending our call. No payment is taken at this stage.</p>
+        </div>
+      </div>
       <div style="font-size:11px;font-weight:700;color:#3a4d68;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 6px">Are you wearing or do you have any of these?</div>
       <div class="uqb-check-grid">
         <label class="uqb-chk-lbl"><input type="checkbox" name="sq_items" value="Hearing aid"> Hearing aid</label>
@@ -1480,6 +1541,14 @@ class Unirad_Quick_Booking_V2 {
 .uqb-dd button:hover{background:#f7f9fc}
 .uqb-btn{background:#00a896;color:#fff;border:none;border-radius:10px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer;transition:.2s;white-space:nowrap;margin:10px 14px;flex-shrink:0}
 .uqb-btn:disabled{background:#c8d5e0;cursor:not-allowed}
+.uqb-btn--red{background:#991b1b!important}
+.uqb-btn--red:hover{background:#7f1d1d!important}
+.uqb-sq-row--highlight{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px;margin:6px 0}
+.uqb-yn--three{display:flex;gap:12px}
+.uqb-claustro-warn{background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:16px;margin:8px 0 12px}
+.uqb-claustro-title{font-weight:700;color:#991b1b;margin-bottom:8px;font-size:14px}
+.uqb-claustro-msg{font-size:13px;color:#7f1d1d;margin:0 0 12px;line-height:1.5}
+.uqb-claustro-note{font-size:11px;color:#9ca3af;margin-top:10px;margin-bottom:0}
 .uqb-list{padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:7px}
 .uqb-card{border:1.5px solid #dce4ef;border-radius:10px;cursor:pointer;overflow:hidden;transition:border-color .15s}
 .uqb-card:hover{border-color:#a8c5e0}
@@ -1739,7 +1808,21 @@ function updateConfirmBtn(){
   if(S.payMode==="callback"){btn.disabled=false;btn.textContent="Request Callback \u2192";}
   else{btn.disabled=!S.time;btn.textContent="Confirm & Pay \u2192";}
 }
+function checkClaustro(){
+  var c=ROOT.querySelector("[name=\"sq_claustro\"]:checked");
+  var isYes=c&&c.value==="Yes";
+  var block=q("#uqb-claustro-block");
+  var nextBtn=q("#uqbNext2");
+  if(block)block.style.display=isYes?"block":"none";
+  if(nextBtn)nextBtn.style.display=isYes?"none":"";
+  if(isYes){
+    var ph=q("#claustro_phone"),ptPh=q("#pt_phone");
+    if(ph&&ptPh&&ptPh.value&&!ph.value)ph.value=ptPh.value;
+  }
+}
 function validateStep2(){
+  var claustro=ROOT.querySelector("[name=\"sq_claustro\"]:checked");
+  if(claustro&&claustro.value==="Yes"){alert("Please use the clinical call request form below — our team will contact you to arrange your scan.");return false;}
   var req=["pt_first","pt_last","pt_dob","pt_phone","pt_email","pt_reason","sq_surgeries"];
   for(var i=0;i<req.length;i++){
     var el=q("#"+req[i]);
@@ -1841,6 +1924,24 @@ function init(){
   q("#uqbBack2").onclick=function(){goStep(2);};
   ROOT.querySelectorAll("[name=\"sq_pacemaker\"]").forEach(function(r){r.addEventListener("change",function(){var row=q("#uqb-impl-row");var c=ROOT.querySelector("[name=\"sq_pacemaker\"]:checked");if(row)row.style.display=(c&&c.value==="Yes")?"block":"none";checkSafetyCallback();});});
   ROOT.querySelectorAll("[name=\"sq_pregnant\"]").forEach(function(r){r.addEventListener("change",function(){checkSafetyCallback();});});
+  ROOT.querySelectorAll("[name=\"sq_claustro\"]").forEach(function(r){r.addEventListener("change",function(){checkClaustro();});});
+  var claustroBtn=q("#uqbClaustroSubmit");
+  if(claustroBtn)claustroBtn.addEventListener("click",function(){
+    var ph=q("#claustro_phone");
+    if(!ph||!ph.value.trim()){if(ph)ph.focus();alert("Please enter your phone number so we can call you.");return;}
+    var pt=getPatient();
+    claustroBtn.disabled=true;claustroBtn.textContent="Sending…";
+    fetch(AJAX,{method:"POST",body:new URLSearchParams({
+      action:"unirad_qb2_claustro_hold",nonce:NONCE,
+      name:((pt.first||"")+" "+(pt.last||"")).trim()||"Not provided",
+      phone:ph.value.trim(),
+      email:pt.email||"",
+      scan:selLabel()
+    })}).then(function(){
+      var block=q("#uqb-claustro-block");
+      if(block)block.innerHTML="<div class=\"uqb-claustro-warn\" style=\"text-align:center;padding:24px\"><div style=\"font-size:32px\">&#128222;</div><div style=\"font-weight:700;color:#065f46;font-size:15px;margin:10px 0 6px\">We'll call you shortly!</div><p style=\"font-size:13px;color:#374151;margin:0\">A member of our team will be in touch within 1 working hour to discuss your scan. Thank you for letting us know.</p></div>";
+    }).catch(function(){claustroBtn.disabled=false;claustroBtn.textContent="📞 Request a Clinical Call →";alert("Error submitting. Please call us directly on 0141 846 9116.");});
+  });
   ROOT.querySelectorAll("[name=\"pt_prev_exam\"]").forEach(function(r){r.addEventListener("change",function(){var v=ROOT.querySelector("[name=\"pt_prev_exam\"]:checked");var box=q("#uqb-prev-exam-upload");if(box)box.style.display=(v&&v.value!=="No")?"block":"none";});});
   var pua=q("#uqbPrevUploadArea"),pfi=q("#prev_file");
   if(pua&&pfi){
