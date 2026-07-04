@@ -668,7 +668,7 @@ class Unirad_Quick_Booking_V2 {
         $catalog = self::catalog();
 
         if ( $mode === 'mri' ) {
-            $special_prices = array('breast'=>420,'cardiac'=>575,'prostate'=>495,'small_bowel'=>495,'abdomen_pelvis'=>455);
+            $special_prices = array('breast'=>420,'cardiac'=>575,'prostate'=>495,'small_bowel'=>495,'abdomen_pelvis'=>495);
             $parts = 0; $labels = array(); $special_total = 0;
             if ( is_array( $items ) ) {
                 foreach ( $items as $item ) {
@@ -722,6 +722,18 @@ class Unirad_Quick_Booking_V2 {
         WC()->session->set( 'uqb_booking_date', $date );
         WC()->session->set( 'uqb_booking_time', $time );
         WC()->session->set( 'uqb_scan_label', $scan_label );
+
+        // Lock the slot for 15 minutes to prevent double-booking race conditions
+        $locked = get_transient( 'uqb_locked_' . $date );
+        if ( ! is_array( $locked ) ) $locked = array();
+        $scan_dur_lock = isset( $scan_dur ) ? $scan_dur : 60;
+        list( $lh, $lm ) = array_pad( explode( ':', $time ), 2, '00' );
+        $lock_start = (int)$lh * 60 + (int)$lm;
+        for ( $lslot = $lock_start; $lslot < $lock_start + $scan_dur_lock; $lslot += 30 ) {
+            $locked[] = sprintf( '%02d:%02d', intdiv( $lslot, 60 ), $lslot % 60 );
+        }
+        set_transient( 'uqb_locked_' . $date, array_unique( $locked ), 15 * MINUTE_IN_SECONDS );
+
         WC()->cart->add_to_cart( $product_id, 1, 0, array(), $cart_meta );
         wp_send_json_success( array( 'redirect' => wc_get_checkout_url() ) );
     }
@@ -1227,12 +1239,12 @@ class Unirad_Quick_Booking_V2 {
         return array(
             // WooCommerce product IDs for MRI bundles
             'bundles'       => array( 1 => 5253, 2 => 5141, 3 => 5234, 4 => 5235 ),
-            'bundle_prices' => array( 1 => 290,  2 => 455,  3 => 600,  4 => 700  ),
+            'bundle_prices' => array( 1 => 290,  2 => 495,  3 => 695,  4 => 895  ),
             // Deposit product (WooCommerce ID 181 = Pay £50 Deposit)
             'deposit_id'    => 181,
             'deposit_price' => 50,
             'mri_items' => array(
-                array( 'id' => 'abdomen_pelvis', 'name' => 'Abdomen & Pelvis Scan',     'laterality' => false, 'cb' => true,  'price' => 455  ),
+                array( 'id' => 'abdomen_pelvis', 'name' => 'Abdomen & Pelvis Scan',     'laterality' => false, 'cb' => true,  'price' => 495  ),
                 array( 'id' => 'abdomen_mri',    'name' => 'Abdomen MRI Scan',          'laterality' => false, 'cb' => true,  'price' => 290  ),
                 array( 'id' => 'achilles',       'name' => 'Achilles Tendon MRI',       'laterality' => true,  'cb' => false, 'price' => 290  ),
                 array( 'id' => 'angiography',    'name' => 'Angiography - Brain',       'laterality' => false, 'cb' => true,  'price' => 290  ),
@@ -1283,8 +1295,8 @@ class Unirad_Quick_Booking_V2 {
                 array( 'id' => 'wrist',          'name' => 'Wrist MRI Scan',            'laterality' => true,  'cb' => false, 'price' => 290  ),
             ),
             'full_body' => array(
-                array( 'id' => '1332', 'name' => 'Full Body MRI Silver Package – Brain, Abdomen & Pelvis',                      'price' => 590,  'cb' => true ),
-                array( 'id' => '1464', 'name' => 'Full Body MRI Gold Package – Brain, Spine, Abdomen & Pelvis',                       'price' => 1210, 'cb' => true ),
+                array( 'id' => '1332', 'name' => 'Full Body MRI Silver Package – Brain, Abdomen & Pelvis',                      'price' => 640,  'cb' => true ),
+                array( 'id' => '1464', 'name' => 'Full Body MRI Gold Package – Brain, Spine, Abdomen & Pelvis',                       'price' => 1260, 'cb' => true ),
                 array( 'id' => '1465', 'name' => 'Full Body MRI Platinum Package – Heart, Brain, Spine, Abdomen & Pelvis',             'price' => 1660, 'cb' => true ),
             ),
             'gp' => array(
@@ -1714,7 +1726,7 @@ function fmt(n){return"\u00a3"+parseFloat(n||0).toFixed(2);}
 function keys(){return Object.keys(S.picks);}
 function total(){
   if(S.mode!=="mri"){var t=0;keys().forEach(function(k){t+=S.picks[k].price||0;});return t;}
-  var SPECIAL={breast:420,cardiac:575,prostate:495,small_bowel:495,abdomen_pelvis:455,pelvis_sports:380};
+  var SPECIAL={breast:420,cardiac:575,prostate:495,small_bowel:495,abdomen_pelvis:495,pelvis_sports:380};
   var sp=0,bp=0;
   keys().forEach(function(k){
     var p=S.picks[k];

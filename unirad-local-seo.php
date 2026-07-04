@@ -544,8 +544,8 @@ a:hover{text-decoration:underline;}
     <div class="un-scan-card"><span class="un-scan-name">Prostate MRI Scan</span><span class="un-scan-price">£495</span></div>
     <div class="un-scan-card"><span class="un-scan-name">Breast MRI</span><span class="un-scan-price">£420</span></div>
     <div class="un-scan-card"><span class="un-scan-name">Cardiac MRI Scan</span><span class="un-scan-price">£575</span></div>
-    <div class="un-scan-card"><span class="un-scan-name">Abdomen &amp; Pelvis</span><span class="un-scan-price">£455</span></div>
-    <div class="un-scan-card"><span class="un-scan-name">Full Body Silver</span><span class="un-scan-price">£590</span></div>
+    <div class="un-scan-card"><span class="un-scan-name">Abdomen &amp; Pelvis</span><span class="un-scan-price">£495</span></div>
+    <div class="un-scan-card"><span class="un-scan-name">Full Body Silver</span><span class="un-scan-price">£640</span></div>
     <div class="un-scan-card"><span class="un-scan-name">Full Body Platinum</span><span class="un-scan-price">£1,660</span></div>
   </div>
   <p style="font-size:13px;color:#888;margin-bottom:40px;"><a href="<?php echo esc_url( $book_url ); ?>">View all 50+ scan types &rarr;</a></p>

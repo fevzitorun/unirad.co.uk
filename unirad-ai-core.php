@@ -236,8 +236,8 @@ MRI SCAN CATALOG (all prices include radiologist report):
 $catalog
 
 FULL BODY MRI PACKAGES:
-• Silver Package — Brain + Abdomen & Pelvis: £590
-• Gold Package — Brain + Whole Spine + Abdomen & Pelvis: £1,210
+• Silver Package — Brain + Abdomen & Pelvis: £640
+• Gold Package — Brain + Whole Spine + Abdomen & Pelvis: £1,260
 • Platinum Package — Heart + Brain + Whole Spine + Abdomen & Pelvis: £1,660
 
 GP SERVICES:

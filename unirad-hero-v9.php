@@ -212,31 +212,31 @@ header .logo img,
 function uhr9_catalog(){
     return array(
         'mri'=>array(
-            array('id'=>'abdomen_pelvis','name'=>'Abdomen & Pelvis Scan','lat'=>false,'price'=>455,'priceBoth'=>455),
+            array('id'=>'abdomen_pelvis','name'=>'Abdomen & Pelvis Scan','lat'=>false,'price'=>495,'priceBoth'=>495),
             array('id'=>'abdomen_mri','name'=>'Abdomen MRI Scan','lat'=>false,'price'=>290,'priceBoth'=>290),
-            array('id'=>'achilles','name'=>'Achilles Tendon MRI','lat'=>true,'price'=>290,'priceBoth'=>455),
+            array('id'=>'achilles','name'=>'Achilles Tendon MRI','lat'=>true,'price'=>290,'priceBoth'=>495),
             array('id'=>'angiography','name'=>'Angiography - Brain','lat'=>false,'price'=>290,'priceBoth'=>290),
-            array('id'=>'ankle','name'=>'Ankle MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>455),
-            array('id'=>'axilla','name'=>'Axilla MRI','lat'=>true,'price'=>290,'priceBoth'=>455),
+            array('id'=>'ankle','name'=>'Ankle MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>495),
+            array('id'=>'axilla','name'=>'Axilla MRI','lat'=>true,'price'=>290,'priceBoth'=>495),
             array('id'=>'brachial','name'=>'Brachial Plexus MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
             array('id'=>'brain_head','name'=>'Brain MRI Scan','lat'=>false,'price'=>290,'priceBoth'=>290),
             array('id'=>'breast','name'=>'Breast MRI','lat'=>false,'price'=>420,'priceBoth'=>420),
-            array('id'=>'calf','name'=>'Calf MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>455),
+            array('id'=>'calf','name'=>'Calf MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>495),
             array('id'=>'cardiac','name'=>'Cardiac MRI Scan','lat'=>false,'price'=>575,'priceBoth'=>575),
             array('id'=>'cervical','name'=>'Cervical Spine MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
             array('id'=>'chest','name'=>'Chest (Thorax) MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
-            array('id'=>'clavicle','name'=>'Clavicle MRI','lat'=>true,'price'=>290,'priceBoth'=>455),
+            array('id'=>'clavicle','name'=>'Clavicle MRI','lat'=>true,'price'=>290,'priceBoth'=>495),
             array('id'=>'coccyx','name'=>'Coccyx Spine MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
-            array('id'=>'elbow','name'=>'Elbow MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>455),
+            array('id'=>'elbow','name'=>'Elbow MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>495),
             array('id'=>'face','name'=>'Face MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
-            array('id'=>'femur','name'=>'Femur (Upper Leg) MRI','lat'=>true,'price'=>290,'priceBoth'=>455),
-            array('id'=>'fingers','name'=>'Fingers / Thumb MRI','lat'=>true,'price'=>290,'priceBoth'=>455),
-            array('id'=>'foot','name'=>'Foot MRI','lat'=>true,'price'=>290,'priceBoth'=>455),
-            array('id'=>'forearm','name'=>'Forearm MRI','lat'=>true,'price'=>290,'priceBoth'=>455),
-            array('id'=>'hand','name'=>'Hand MRI','lat'=>true,'price'=>290,'priceBoth'=>455),
-            array('id'=>'hip','name'=>'Hip MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>455),
+            array('id'=>'femur','name'=>'Femur (Upper Leg) MRI','lat'=>true,'price'=>290,'priceBoth'=>495),
+            array('id'=>'fingers','name'=>'Fingers / Thumb MRI','lat'=>true,'price'=>290,'priceBoth'=>495),
+            array('id'=>'foot','name'=>'Foot MRI','lat'=>true,'price'=>290,'priceBoth'=>495),
+            array('id'=>'forearm','name'=>'Forearm MRI','lat'=>true,'price'=>290,'priceBoth'=>495),
+            array('id'=>'hand','name'=>'Hand MRI','lat'=>true,'price'=>290,'priceBoth'=>495),
+            array('id'=>'hip','name'=>'Hip MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>495),
             array('id'=>'iam','name'=>'IAM MRI Scan','lat'=>false,'price'=>290,'priceBoth'=>290),
-            array('id'=>'knee','name'=>'Knee MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>455),
+            array('id'=>'knee','name'=>'Knee MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>495),
             array('id'=>'liver','name'=>'Liver MRI Scan','lat'=>false,'price'=>290,'priceBoth'=>290),
             array('id'=>'lumbar','name'=>'Lumbar Spine MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
             array('id'=>'mrcp','name'=>'MRCP Scan','lat'=>false,'price'=>290,'priceBoth'=>290),
@@ -250,22 +250,22 @@ function uhr9_catalog(){
             array('id'=>'prostate','name'=>'Prostate MRI Scan','lat'=>false,'price'=>495,'priceBoth'=>495),
             array('id'=>'sacroiliac','name'=>'Sacroiliac Joints MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
             array('id'=>'sacrum','name'=>'Sacrum MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
-            array('id'=>'scapula','name'=>'Scapula MRI','lat'=>true,'price'=>290,'priceBoth'=>455),
-            array('id'=>'shoulder','name'=>'Shoulder MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>455),
+            array('id'=>'scapula','name'=>'Scapula MRI','lat'=>true,'price'=>290,'priceBoth'=>495),
+            array('id'=>'shoulder','name'=>'Shoulder MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>495),
             array('id'=>'sinuses','name'=>'Sinuses MRI Scan','lat'=>false,'price'=>290,'priceBoth'=>290),
             array('id'=>'small_bowel','name'=>'Small Bowel MRI Scan','lat'=>false,'price'=>495,'priceBoth'=>495),
             array('id'=>'soft_tissue','name'=>'Soft Tissue Neck MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
             array('id'=>'sternum','name'=>'Sternum MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
-            array('id'=>'thigh','name'=>'Thigh MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>455),
+            array('id'=>'thigh','name'=>'Thigh MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>495),
             array('id'=>'thoracic','name'=>'Thoracic Spine MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
-            array('id'=>'tibia','name'=>'Tibia (Lower Leg) MRI','lat'=>true,'price'=>290,'priceBoth'=>455),
+            array('id'=>'tibia','name'=>'Tibia (Lower Leg) MRI','lat'=>true,'price'=>290,'priceBoth'=>495),
             array('id'=>'tmj','name'=>'TMJ Joint MRI','lat'=>false,'price'=>290,'priceBoth'=>290),
-            array('id'=>'upper_arm','name'=>'Upper Arm MRI','lat'=>true,'price'=>290,'priceBoth'=>455),
-            array('id'=>'wrist','name'=>'Wrist MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>455),
+            array('id'=>'upper_arm','name'=>'Upper Arm MRI','lat'=>true,'price'=>290,'priceBoth'=>495),
+            array('id'=>'wrist','name'=>'Wrist MRI Scan','lat'=>true,'price'=>290,'priceBoth'=>495),
         ),
         'full'=>array(
-            array('id'=>'1332','name'=>'Silver Package','desc'=>'Brain, Abdomen & Pelvis','lat'=>false,'price'=>590,'priceBoth'=>590),
-            array('id'=>'1464','name'=>'Gold Package','desc'=>'Brain, Spine (whole), Abdomen & Pelvis','lat'=>false,'price'=>1210,'priceBoth'=>1210),
+            array('id'=>'1332','name'=>'Silver Package','desc'=>'Brain, Abdomen & Pelvis','lat'=>false,'price'=>640,'priceBoth'=>640),
+            array('id'=>'1464','name'=>'Gold Package','desc'=>'Brain, Spine (whole), Abdomen & Pelvis','lat'=>false,'price'=>1260,'priceBoth'=>1260),
             array('id'=>'1465','name'=>'Platinum Package','desc'=>'Heart, Brain, Spine (whole), Abdomen & Pelvis','lat'=>false,'price'=>1660,'priceBoth'=>1660),
         ),
         'gp'=>array(
@@ -340,7 +340,7 @@ function uhr9_render(){
           <div class="uhr9-dd" id="uhr9TD">
             <div class="uhr9-dd-hd">Select scan type</div>
             <div class="uhr9-type-opt on" data-mode="mri">MRI Scan <span class="uhr9-dd-badge">From &pound;290</span></div>
-            <div class="uhr9-type-opt" data-mode="full">Full Body MRI <span class="uhr9-dd-badge">From &pound;590</span></div>
+            <div class="uhr9-type-opt" data-mode="full">Full Body MRI <span class="uhr9-dd-badge">From &pound;640</span></div>
             <div class="uhr9-type-opt" data-mode="gp">GP Consultation <span class="uhr9-dd-badge">From &pound;40</span></div>
           </div>
         </div>
@@ -391,8 +391,8 @@ function uhr9_render(){
 <script>
 (function(){
 var C=<?php echo $js;?>;
-var SPECIAL={breast:420,cardiac:575,prostate:495,small_bowel:495,abdomen_pelvis:455,pelvis_sports:380};
-var BUNDLE={1:290,2:455,3:600,4:700};
+var SPECIAL={breast:420,cardiac:575,prostate:495,small_bowel:495,abdomen_pelvis:495,pelvis_sports:380};
+var BUNDLE={1:290,2:495,3:695,4:895};
 var S={mode:'mri',picks:{},pendingId:null};
 var ML={mri:'MRI Scan',full:'Full Body MRI',gp:'GP Consultation'};
 function g(id){return document.getElementById(id);}

@@ -18,17 +18,17 @@ function usbb_map() {
         'head-mri-scan'          => array( 'brain_head',  'mri',  'Brain / Head MRI Scan',    290, null ),
         'brain-mri-scan'         => array( 'brain_head',  'mri',  'Brain / Head MRI Scan',    290, null ),
         'neck-mri-scan'          => array( 'soft_tissue', 'mri',  'Soft Tissue Neck MRI',     290, null ),
-        'shoulder-mri-scan'      => array( 'shoulder',    'mri',  'Shoulder MRI Scan',        290,  455 ),
+        'shoulder-mri-scan'      => array( 'shoulder',    'mri',  'Shoulder MRI Scan',        290,  495 ),
         'chest-mri-scan'         => array( 'chest',       'mri',  'Chest (Thorax) MRI',       290, null ),
         'abdomen-mri-scan'       => array( 'abdomen_mri', 'mri',  'Abdomen MRI Scan',         290, null ),
         'spine-mri-scan'         => array( 'lumbar',      'mri',  'Lumbar Spine MRI',         290, null ),
-        'hip-mri-scan'           => array( 'hip',         'mri',  'Hip MRI Scan',             290,  455 ),
-        'knee-mri-scan'          => array( 'knee',        'mri',  'Knee MRI Scan',            290,  455 ),
-        'foot-mri-scan'          => array( 'foot',        'mri',  'Foot MRI',                 290,  455 ),
-        'ankle-mri-scan'         => array( 'ankle',       'mri',  'Ankle MRI Scan',           290,  455 ),
-        'elbow-mri-scan'         => array( 'elbow',       'mri',  'Elbow MRI Scan',           290,  455 ),
-        'hand-mri-scan'          => array( 'hand',        'mri',  'Hand MRI',                 290,  455 ),
-        'wrist-mri-scan'         => array( 'wrist',       'mri',  'Wrist MRI Scan',           290,  455 ),
+        'hip-mri-scan'           => array( 'hip',         'mri',  'Hip MRI Scan',             290,  495 ),
+        'knee-mri-scan'          => array( 'knee',        'mri',  'Knee MRI Scan',            290,  495 ),
+        'foot-mri-scan'          => array( 'foot',        'mri',  'Foot MRI',                 290,  495 ),
+        'ankle-mri-scan'         => array( 'ankle',       'mri',  'Ankle MRI Scan',           290,  495 ),
+        'elbow-mri-scan'         => array( 'elbow',       'mri',  'Elbow MRI Scan',           290,  495 ),
+        'hand-mri-scan'          => array( 'hand',        'mri',  'Hand MRI',                 290,  495 ),
+        'wrist-mri-scan'         => array( 'wrist',       'mri',  'Wrist MRI Scan',           290,  495 ),
         'cardiac-mri-scan'       => array( 'cardiac',     'mri',  'Cardiac MRI Scan',         575, null ),
         'prostate-mri-scan'      => array( 'prostate',    'mri',  'Prostate MRI Scan',        495, null ),
         'pelvis-mri-scan'        => array( 'pelvis_scan', 'mri',  'Pelvis MRI Scan',          290, null ),
@@ -37,17 +37,17 @@ function usbb_map() {
         // ── Shortcode scan_id aliases ────────────────────────
         'brain_head'             => array( 'brain_head',  'mri',  'Brain / Head MRI Scan',    290, null ),
         'neck'                   => array( 'soft_tissue', 'mri',  'Soft Tissue Neck MRI',     290, null ),
-        'shoulder'               => array( 'shoulder',    'mri',  'Shoulder MRI Scan',        290,  455 ),
+        'shoulder'               => array( 'shoulder',    'mri',  'Shoulder MRI Scan',        290,  495 ),
         'chest'                  => array( 'chest',       'mri',  'Chest (Thorax) MRI',       290, null ),
         'abdomen'                => array( 'abdomen_mri', 'mri',  'Abdomen MRI Scan',         290, null ),
         'spine'                  => array( 'lumbar',      'mri',  'Lumbar Spine MRI',         290, null ),
-        'hip'                    => array( 'hip',         'mri',  'Hip MRI Scan',             290,  455 ),
-        'knee'                   => array( 'knee',        'mri',  'Knee MRI Scan',            290,  455 ),
-        'foot'                   => array( 'foot',        'mri',  'Foot MRI',                 290,  455 ),
-        'ankle'                  => array( 'ankle',       'mri',  'Ankle MRI Scan',           290,  455 ),
-        'elbow'                  => array( 'elbow',       'mri',  'Elbow MRI Scan',           290,  455 ),
-        'hand'                   => array( 'hand',        'mri',  'Hand MRI',                 290,  455 ),
-        'wrist'                  => array( 'wrist',       'mri',  'Wrist MRI Scan',           290,  455 ),
+        'hip'                    => array( 'hip',         'mri',  'Hip MRI Scan',             290,  495 ),
+        'knee'                   => array( 'knee',        'mri',  'Knee MRI Scan',            290,  495 ),
+        'foot'                   => array( 'foot',        'mri',  'Foot MRI',                 290,  495 ),
+        'ankle'                  => array( 'ankle',       'mri',  'Ankle MRI Scan',           290,  495 ),
+        'elbow'                  => array( 'elbow',       'mri',  'Elbow MRI Scan',           290,  495 ),
+        'hand'                   => array( 'hand',        'mri',  'Hand MRI',                 290,  495 ),
+        'wrist'                  => array( 'wrist',       'mri',  'Wrist MRI Scan',           290,  495 ),
         'cardiac'                => array( 'cardiac',     'mri',  'Cardiac MRI Scan',         575, null ),
         'prostate'               => array( 'prostate',    'mri',  'Prostate MRI Scan',        495, null ),
         'pelvis'                 => array( 'pelvis_scan', 'mri',  'Pelvis MRI Scan',          290, null ),
@@ -58,8 +58,8 @@ function usbb_map() {
 // Full body packages
 function usbb_full_body_packages() {
     return array(
-        array( 'id' => '1332', 'name' => 'Silver',   'desc' => 'Brain, Abdomen & Pelvis',                            'price' => 590  ),
-        array( 'id' => '1464', 'name' => 'Gold',     'desc' => 'Brain, Spine (whole), Abdomen & Pelvis',             'price' => 1210 ),
+        array( 'id' => '1332', 'name' => 'Silver',   'desc' => 'Brain, Abdomen & Pelvis',                            'price' => 640  ),
+        array( 'id' => '1464', 'name' => 'Gold',     'desc' => 'Brain, Spine (whole), Abdomen & Pelvis',             'price' => 1260 ),
         array( 'id' => '1465', 'name' => 'Platinum', 'desc' => 'Heart, Brain, Spine (whole), Abdomen & Pelvis',      'price' => 1660 ),
     );
 }
@@ -165,7 +165,7 @@ function usbb_render( $atts ) {
     $book_url = '/book-your-scan/?scan_id=' . urlencode( $scan_id ) . '&scan_mode=' . urlencode( $scan_mode );
     $init_side = $is_lat ? 'Left' : '';
     $init_href = $book_url . ( $is_lat ? '&scan_side=Left' : '' );
-    $init_price = $is_lat ? $price : $price; // Left/Right = £290, Bilateral = £455
+    $init_price = $is_lat ? $price : $price; // Left/Right = £290, Bilateral = £495
 
     ob_start(); ?>
 <div class="usbb-wrap" id="<?php echo esc_attr($uid); ?>">
