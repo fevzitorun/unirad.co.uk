@@ -137,8 +137,9 @@ class Unirad_Automation {
         if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$bt}'" ) || ! function_exists( 'wc_get_orders' ) ) return 0;
 
         $empty = $wpdb->get_results(
-            "SELECT id, start_date FROM `{$bt}`
-             WHERE (custom_service_name IS NULL OR custom_service_name = '')
+            "SELECT id, start_date, custom_service_name, custom_service_price FROM `{$bt}`
+             WHERE ( custom_service_name IS NULL OR custom_service_name = ''
+                     OR custom_service_price IS NULL OR custom_service_price = 0 )
                AND start_date > DATE_SUB(NOW(), INTERVAL 90 DAY)
              LIMIT 100", ARRAY_A
         );
@@ -161,8 +162,13 @@ class Unirad_Automation {
                     break;
                 }
             }
-            if ( $scan ) {
-                $wpdb->update( $bt, array( 'custom_service_name' => $scan ), array( 'id' => $row['id'] ) );
+            $upd = array();
+            if ( $scan && ! $row['custom_service_name'] ) $upd['custom_service_name'] = $scan;
+            if ( ! (float) $row['custom_service_price'] && (float) $orders[0]->get_total() > 0 ) {
+                $upd['custom_service_price'] = (float) $orders[0]->get_total();
+            }
+            if ( $upd ) {
+                $wpdb->update( $bt, $upd, array( 'id' => $row['id'] ) );
                 $fixed++;
             }
         }

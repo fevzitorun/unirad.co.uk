@@ -104,22 +104,22 @@ class Unirad_Director_Dashboard {
 
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0">
                 <?php
-                self::card( 'Bugünkü Randevu', count( $today ), '#003057' );
-                self::card( 'Bugünkü Gelir', '£' . number_format( $rev_o ), '#009B8D' );
-                self::card( 'Bu Ay Gelir', '£' . number_format( $rev_m ) . " <span style='font-size:12px'>({$n_m} sipariş)</span>", '#009B8D' );
-                self::card( 'Bekleyen Ödeme', count( $pending ), count( $pending ) > 3 ? '#b91c1c' : '#787c82' );
+                self::card( 'Today\'s Appointments', count( $today ), '#003057' );
+                self::card( 'Today\'s Revenue', '£' . number_format( $rev_o ), '#009B8D' );
+                self::card( 'This Month', '£' . number_format( $rev_m ) . " <span style='font-size:12px'>({$n_m} orders)</span>", '#009B8D' );
+                self::card( 'Pending Payments', count( $pending ), count( $pending ) > 3 ? '#b91c1c' : '#787c82' );
                 ?>
             </div>
 
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
 
                 <div style="background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:20px">
-                    <h2 style="margin-top:0">📅 Bugünkü Randevular</h2>
+                    <h2 style="margin-top:0">📅 Today&rsquo;s Appointments</h2>
                     <?php if ( ! $today ) : ?>
-                        <p style="color:#787c82">Bugün randevu yok.</p>
+                        <p style="color:#787c82">No appointments today.</p>
                     <?php else : ?>
                         <table class="widefat striped">
-                            <thead><tr><th>Saat</th><th>Hasta</th><th>Tarama</th><th>£</th></tr></thead>
+                            <thead><tr><th>Time</th><th>Patient</th><th>Scan</th><th>£</th></tr></thead>
                             <tbody>
                             <?php foreach ( $today as $a ) :
                                 $name = trim( $a['full_name'] ?: ( $a['first_name'] . ' ' . $a['last_name'] ) );
@@ -137,12 +137,12 @@ class Unirad_Director_Dashboard {
                 </div>
 
                 <div style="background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:20px">
-                    <h2 style="margin-top:0">🗓️ Önümüzdeki 7 Gün</h2>
+                    <h2 style="margin-top:0">🗓️ Next 7 Days</h2>
                     <?php if ( ! $week ) : ?>
-                        <p style="color:#787c82">Önümüzdeki hafta randevu yok — <strong>takvim boş, pazarlama aksiyonu gerekebilir.</strong></p>
+                        <p style="color:#787c82">No appointments next week — <strong>calendar is empty, marketing action may be needed.</strong></p>
                     <?php else : ?>
                         <table class="widefat striped">
-                            <thead><tr><th>Gün</th><th>Randevu</th><th>Beklenen Gelir</th></tr></thead>
+                            <thead><tr><th>Day</th><th>Appointments</th><th>Expected Revenue</th></tr></thead>
                             <tbody>
                             <?php foreach ( $week as $w ) : ?>
                                 <tr>
@@ -157,12 +157,12 @@ class Unirad_Director_Dashboard {
                 </div>
 
                 <div style="background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:20px;grid-column:1/-1">
-                    <h2 style="margin-top:0">🔔 Bekleyen / Başarısız Ödemeler (son 14 gün)</h2>
+                    <h2 style="margin-top:0">🔔 Pending / Failed Payments (last 14 days)</h2>
                     <?php if ( ! $pending ) : ?>
-                        <p style="color:#00a32a">✓ Bekleyen ödeme yok.</p>
+                        <p style="color:#00a32a">✓ No pending payments.</p>
                     <?php else : ?>
                         <table class="widefat striped">
-                            <thead><tr><th>Order</th><th>Hasta</th><th>Durum</th><th>Tutar</th><th>Tarih</th><th></th></tr></thead>
+                            <thead><tr><th>Order</th><th>Patient</th><th>Status</th><th>Amount</th><th>Date</th><th></th></tr></thead>
                             <tbody>
                             <?php foreach ( $pending as $o ) : ?>
                                 <tr>
@@ -171,7 +171,7 @@ class Unirad_Director_Dashboard {
                                     <td><?php echo esc_html( wc_get_order_status_name( $o->get_status() ) ); ?></td>
                                     <td>£<?php echo number_format( (float) $o->get_total() ); ?></td>
                                     <td><?php echo esc_html( $o->get_date_created()->date_i18n( 'j M H:i' ) ); ?></td>
-                                    <td><a href="<?php echo esc_url( $o->get_edit_order_url() ); ?>" class="button button-small">Aç</a></td>
+                                    <td><a href="<?php echo esc_url( $o->get_edit_order_url() ); ?>" class="button button-small">Open</a></td>
                                 </tr>
                             <?php endforeach; ?>
                             </tbody>
