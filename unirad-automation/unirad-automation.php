@@ -128,12 +128,55 @@ class Unirad_Automation {
             . '</div>';
     }
 
+    /* ── Takvim adı onarımı ──────────────────────────────────────────────── */
+
+    /** custom_service_name'i boş kalan randevuları WooCommerce siparişinden doldurur. */
+    public static function backfill_service_names() {
+        global $wpdb;
+        $bt = $wpdb->prefix . 'bookly_appointments';
+        if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$bt}'" ) || ! function_exists( 'wc_get_orders' ) ) return 0;
+
+        $empty = $wpdb->get_results(
+            "SELECT id, start_date FROM `{$bt}`
+             WHERE (custom_service_name IS NULL OR custom_service_name = '')
+               AND start_date > DATE_SUB(NOW(), INTERVAL 90 DAY)
+             LIMIT 100", ARRAY_A
+        );
+        $fixed = 0;
+        foreach ( $empty as $row ) {
+            $date = substr( $row['start_date'], 0, 10 );
+            $time = substr( $row['start_date'], 11, 5 );
+            $orders = wc_get_orders( array(
+                'limit'      => 1,
+                'meta_query' => array(
+                    array( 'key' => '_uqb_booking_date', 'value' => $date ),
+                    array( 'key' => '_uqb_booking_time', 'value' => $time ),
+                ),
+            ) );
+            if ( ! $orders ) continue;
+            $scan = $orders[0]->get_meta( '_uqb_scan_label' );
+            if ( ! $scan ) {
+                foreach ( $orders[0]->get_items() as $item ) {
+                    $scan = $item->get_meta( 'Scan Details' );
+                    break;
+                }
+            }
+            if ( $scan ) {
+                $wpdb->update( $bt, array( 'custom_service_name' => $scan ), array( 'id' => $row['id'] ) );
+                $fixed++;
+            }
+        }
+        return $fixed;
+    }
+
     /* ── AKIŞ 3: Scan sonrası follow-up ──────────────────────────────────── */
 
     public static function run_daily_followups() {
         global $wpdb;
         $bt = $wpdb->prefix . 'bookly_appointments';
         if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$bt}'" ) ) return;
+
+        self::backfill_service_names();
 
         // Geçmiş randevular + müşteri bilgisi (son 400 gün — yıllık hatırlatma penceresi)
         $rows = $wpdb->get_results(
