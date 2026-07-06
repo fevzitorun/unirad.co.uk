@@ -24,6 +24,8 @@ date_default_timezone_set( 'Europe/London' );
 if ( ! defined( 'UA_BREVO_API_KEY' ) ) define( 'UA_BREVO_API_KEY', ( get_option( 'unirad_dash_settings', [] )['brevo_key'] ?? '' ) );
 if ( ! defined( 'UA_NOTIFY_EMAIL' ) )  define( 'UA_NOTIFY_EMAIL', 'booking@unirad.co.uk' );
 if ( ! defined( 'UA_DIRECTOR_EMAIL' ) ) define( 'UA_DIRECTOR_EMAIL', 'booking@unirad.co.uk' ); // Ayla Hanım'ın adresi ile değiştirilebilir
+// Tüm iç raporlar/uyarılar bu adreslere de CC gider
+if ( ! defined( 'UA_CC_EMAILS' ) ) define( 'UA_CC_EMAILS', 'gulistan.calisgan@unirad.com.tr,uniradimaging@gmail.com' );
 if ( ! defined( 'UA_REVIEW_URL' ) )    define( 'UA_REVIEW_URL', 'https://g.page/r/unirad/review' ); // Google review linki — GBP'den gerçek link ile güncelle
 
 class Unirad_Automation {
@@ -44,6 +46,12 @@ class Unirad_Automation {
         add_action( 'unirad_auto_daily',   array( __CLASS__, 'run_daily_followups' ) );
         add_action( 'unirad_auto_weekly',  array( __CLASS__, 'run_weekly_audit' ) );
         add_action( 'unirad_auto_monthly', array( __CLASS__, 'run_monthly_revenue' ) );
+        // Takvim adı onarımı saatte bir (gece cron'unu beklemeden)
+        add_action( 'unirad_auto_hourly',  array( __CLASS__, 'backfill_service_names' ) );
+        // Dosya üzerine yazılarak güncellendiğinde aktivasyon hook'u çalışmaz — cron'u garanti et
+        add_action( 'admin_init', function () {
+            if ( ! wp_next_scheduled( 'unirad_auto_hourly' ) ) wp_schedule_event( time() + 300, 'hourly', 'unirad_auto_hourly' );
+        } );
 
         // AKIŞ 4 — Ödeme başarısız
         add_action( 'woocommerce_order_status_failed', array( __CLASS__, 'payment_failed_flow' ), 10, 1 );
@@ -74,30 +82,42 @@ class Unirad_Automation {
         if ( ! wp_next_scheduled( 'unirad_auto_daily' ) )   wp_schedule_event( strtotime( 'tomorrow 08:00' ), 'daily', 'unirad_auto_daily' );
         if ( ! wp_next_scheduled( 'unirad_auto_weekly' ) )  wp_schedule_event( strtotime( 'next monday 07:00' ), 'weekly', 'unirad_auto_weekly' );
         if ( ! wp_next_scheduled( 'unirad_auto_monthly' ) ) wp_schedule_event( strtotime( 'first day of next month 07:30' ), 'monthly', 'unirad_auto_monthly' );
+        if ( ! wp_next_scheduled( 'unirad_auto_hourly' ) )  wp_schedule_event( time() + 300, 'hourly', 'unirad_auto_hourly' );
     }
 
     public static function deactivate() {
         wp_clear_scheduled_hook( 'unirad_auto_daily' );
         wp_clear_scheduled_hook( 'unirad_auto_weekly' );
         wp_clear_scheduled_hook( 'unirad_auto_monthly' );
+        wp_clear_scheduled_hook( 'unirad_auto_hourly' );
     }
 
     /* ── Yardımcılar ─────────────────────────────────────────────────────── */
 
-    private static function brevo_send( $to_email, $to_name, $subject, $html_body ) {
+    private static function brevo_send( $to_email, $to_name, $subject, $html_body, $with_cc = false ) {
         if ( ! UA_BREVO_API_KEY || ! is_email( $to_email ) ) return false;
+        $payload = array(
+            'sender'      => array( 'name' => 'Unirad Imaging', 'email' => 'info@unirad.co.uk' ),
+            'to'          => array( array( 'email' => $to_email, 'name' => $to_name ?: $to_email ) ),
+            'subject'     => $subject,
+            'htmlContent' => $html_body,
+        );
+        // İç raporlar Gülistan + Gmail'e de CC gider (hasta emaillerine asla)
+        if ( $with_cc && UA_CC_EMAILS ) {
+            $cc = array();
+            foreach ( explode( ',', UA_CC_EMAILS ) as $e ) {
+                $e = trim( $e );
+                if ( is_email( $e ) && strcasecmp( $e, $to_email ) !== 0 ) $cc[] = array( 'email' => $e );
+            }
+            if ( $cc ) $payload['cc'] = $cc;
+        }
         $res = wp_remote_post( 'https://api.brevo.com/v3/smtp/email', array(
             'timeout' => 15,
             'headers' => array(
                 'api-key'      => UA_BREVO_API_KEY,
                 'Content-Type' => 'application/json',
             ),
-            'body' => wp_json_encode( array(
-                'sender'      => array( 'name' => 'Unirad Imaging', 'email' => 'info@unirad.co.uk' ),
-                'to'          => array( array( 'email' => $to_email, 'name' => $to_name ?: $to_email ) ),
-                'subject'     => $subject,
-                'htmlContent' => $html_body,
-            ) ),
+            'body' => wp_json_encode( $payload ),
         ) );
         return ! is_wp_error( $res ) && wp_remote_retrieve_response_code( $res ) < 300;
     }
@@ -243,8 +263,8 @@ class Unirad_Automation {
         self::brevo_send( $email, $name, 'Payment Issue — Your Unirad Booking Is Not Confirmed Yet',
             self::wrap( "<p>Dear {$first},</p><p>Unfortunately your payment for order <strong>#{$order_id}</strong> did not go through, so your appointment is <strong>not yet confirmed</strong>.</p><p style='text-align:center;margin:20px 0'><a href='" . esc_url( $retry ) . "' style='background:#009B8D;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold'>Retry Payment</a></p><p>Your selected time slot is held for a limited time. If you need help, call us on <strong>0141 846 9116</strong>.</p><p>The Unirad Team</p>" ) );
 
-        self::brevo_send( UA_NOTIFY_EMAIL, 'Unirad Team', '[Payment Failed] Order #' . $order_id . ' - ' . $name,
-            self::wrap( "<p><strong>Ödeme başarısız.</strong></p><p>Order: #{$order_id}<br>Hasta: " . esc_html( $name ) . "<br>Email: " . esc_html( $email ) . "<br>Telefon: " . esc_html( $order->get_billing_phone() ) . "<br>Tutar: &pound;" . $order->get_total() . "</p><p>Hasta retry linki aldı. Slot çakışmasını önlemek için takip edin.</p>" ) );
+        self::brevo_send( UA_NOTIFY_EMAIL, 'Unirad Team', '[Payment Failed] Order #' . $order_id . ' - ' . $name . '',
+            self::wrap( "<p><strong>Ödeme başarısız.</strong></p><p>Order: #{$order_id}<br>Hasta: " . esc_html( $name ) . "<br>Email: " . esc_html( $email ) . "<br>Telefon: " . esc_html( $order->get_billing_phone() ) . "<br>Tutar: &pound;" . $order->get_total() . "</p><p>Hasta retry linki aldı. Slot çakışmasını önlemek için takip edin.</p>" ), true );
 
         self::mark_sent( 'pay_failed', $order_id );
     }
@@ -277,7 +297,7 @@ class Unirad_Automation {
 
         $detail = $order_id ? 'Order #' . $order_id : 'Order bilinmiyor';
         self::brevo_send( UA_NOTIFY_EMAIL, 'Unirad Team', '🔴 [DISPUTE] Acil — ' . $detail,
-            self::wrap( "<p style='color:#b91c1c'><strong>Ödeme itirazı (dispute) açıldı!</strong></p><p>{$detail}" . ( $reason ? '<br>Sebep: ' . esc_html( $reason ) : '' ) . "</p><p><strong>48 saat içinde</strong> WooPayments panelinden kanıt yüklenmiş olmalı: randevu onayı, hasta formu, hizmet kaydı.</p>" ) );
+            self::wrap( "<p style='color:#b91c1c'><strong>Ödeme itirazı (dispute) açıldı!</strong></p><p>{$detail}" . ( $reason ? '<br>Sebep: ' . esc_html( $reason ) : '' ) . "</p><p><strong>48 saat içinde</strong> WooPayments panelinden kanıt yüklenmiş olmalı: randevu onayı, hasta formu, hizmet kaydı.</p>" ), true );
 
         if ( $order_id ) {
             self::mark_sent( 'dispute', $order_id );
@@ -288,7 +308,7 @@ class Unirad_Automation {
 
     public static function dispute_reminder( $order_id, $detail ) {
         self::brevo_send( UA_NOTIFY_EMAIL, 'Unirad Team', '⏰ [DISPUTE Hatırlatma] 24 saat kaldı — ' . $detail,
-            self::wrap( "<p><strong>Dispute cevap süresi dolmak üzere.</strong></p><p>{$detail} için kanıt yüklendi mi? Son 24 saat.</p>" ) );
+            self::wrap( "<p><strong>Dispute cevap süresi dolmak üzere.</strong></p><p>{$detail} için kanıt yüklendi mi? Son 24 saat.</p>" ), true );
     }
 
     /* ── Haftalık audit ──────────────────────────────────────────────────── */
@@ -332,7 +352,7 @@ class Unirad_Automation {
         }
 
         self::brevo_send( UA_NOTIFY_EMAIL, 'Unirad Team', '[Haftalık Audit] unirad.co.uk — ' . date_i18n( 'j M Y' ),
-            self::wrap( '<h3 style="margin-top:0">Haftalık Site Sağlık Raporu</h3><p>' . implode( '<br>', $lines ) . '</p>' ) );
+            self::wrap( '<h3 style="margin-top:0">Haftalık Site Sağlık Raporu</h3><p>' . implode( '<br>', $lines ) . '</p>' ), true );
     }
 
     /* ── Aylık gelir özeti ───────────────────────────────────────────────── */
@@ -373,7 +393,7 @@ class Unirad_Automation {
             self::wrap( '<h3 style="margin-top:0">' . $month_name . ' Gelir Özeti</h3>'
                 . '<p style="font-size:22px;font-weight:800;color:#009B8D">&pound;' . number_format( $total ) . '</p>'
                 . '<p>' . $n . ' başarılı sipariş · Ortalama sipariş: &pound;' . ( $n ? number_format( $total / $n ) : 0 ) . '</p>'
-                . '<table style="width:100%;border-collapse:collapse;font-size:13px"><tr><th style="text-align:left;padding:6px;border-bottom:2px solid #003057">Hizmet</th><th style="padding:6px;border-bottom:2px solid #003057">Adet</th><th style="text-align:right;padding:6px;border-bottom:2px solid #003057">Gelir</th></tr>' . $rows . '</table>' ) );
+                . '<table style="width:100%;border-collapse:collapse;font-size:13px"><tr><th style="text-align:left;padding:6px;border-bottom:2px solid #003057">Hizmet</th><th style="padding:6px;border-bottom:2px solid #003057">Adet</th><th style="text-align:right;padding:6px;border-bottom:2px solid #003057">Gelir</th></tr>' . $rows . '</table>' ), true );
     }
 
     /* ── Brevo contact senkronizasyonu ───────────────────────────────────── */

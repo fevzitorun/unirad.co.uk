@@ -243,6 +243,7 @@ function scanbook_create_appointment( WP_REST_Request $request ): WP_REST_Respon
     $cust_phone   = sanitize_text_field( $request->get_param( 'customer_phone' ) ?? '' );
     $notes        = sanitize_textarea_field( $request->get_param( 'notes' ) ?? '' );
     $scanbook_ref = sanitize_text_field( $request->get_param( 'scanbook_ref' ) ?? '' );
+    $service_name = sanitize_text_field( $request->get_param( 'service_name' ) ?? '' ); // takvimde görünecek tarama adı
 
     if ( ! $service_id || ! $staff_id || ! $start || ! $cust_email ) {
         return new WP_REST_Response( [ 'error' => 'Missing required fields: service_id, staff_id, start, customer_email' ], 400 );
@@ -300,14 +301,15 @@ function scanbook_create_appointment( WP_REST_Request $request ): WP_REST_Respon
     $internal_note = trim( "ScanBook Ref: {$scanbook_ref}\n{$notes}" );
     $token         = wp_generate_password( 32, false ); // Bookly cancel/manage linkleri için
     $wpdb->insert( "{$wpdb->prefix}bookly_appointments", [
-        'staff_id'      => $staff_id,
-        'service_id'    => $service_id,
-        'start_date'    => $start_str,
-        'end_date'      => $end_str,
-        'status'        => 'approved',
-        'internal_note' => $internal_note,
-        'created_from'  => 'api',
-        'token'         => $token,
+        'staff_id'            => $staff_id,
+        'service_id'          => $service_id,
+        'start_date'          => $start_str,
+        'end_date'            => $end_str,
+        'status'              => 'approved',
+        'internal_note'       => $internal_note,
+        'created_from'        => 'api',
+        'token'               => $token,
+        'custom_service_name' => $service_name ?: 'ScanBook Booking',
     ] );
     $appt_id = $wpdb->insert_id;
 

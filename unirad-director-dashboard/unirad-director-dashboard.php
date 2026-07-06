@@ -93,6 +93,13 @@ class Unirad_Director_Dashboard {
     /* ── Render ──────────────────────────────────────────────────────────── */
 
     public static function render() {
+        // Manuel takvim adı onarımı
+        $fix_msg = '';
+        if ( isset( $_POST['udd_fix_names'] ) && check_admin_referer( 'udd_fix' ) && class_exists( 'Unirad_Automation' ) ) {
+            $n = Unirad_Automation::backfill_service_names();
+            $fix_msg = '<div class="notice notice-success"><p><strong>' . intval( $n ) . ' appointment(s) repaired.</strong> Empty scan names/prices were filled from WooCommerce orders. Rows without a matching order (manual entries) must be edited in Bookly directly.</p></div>';
+        }
+
         $today                = self::todays_appointments();
         list( $n_o, $rev_o )  = self::revenue_today();
         list( $n_m, $rev_m )  = self::month_revenue();
@@ -100,7 +107,13 @@ class Unirad_Director_Dashboard {
         $week                 = self::week_appointments();
         ?>
         <div class="wrap" style="max-width:1100px">
-            <h1 style="font-weight:800">📊 Unirad Dashboard <span style="font-size:13px;color:#787c82;font-weight:400"><?php echo esc_html( date_i18n( 'l, j F Y' ) ); ?></span></h1>
+            <h1 style="font-weight:800">📊 Unirad Dashboard <span style="font-size:13px;color:#787c82;font-weight:400"><?php echo esc_html( date_i18n( 'l, j F Y' ) ); ?></span>
+                <form method="post" style="display:inline-block;float:right">
+                    <?php wp_nonce_field( 'udd_fix' ); ?>
+                    <button name="udd_fix_names" class="button">🔧 Fix Calendar Names Now</button>
+                </form>
+            </h1>
+            <?php echo $fix_msg; // phpcs:ignore ?>
 
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0">
                 <?php
