@@ -127,6 +127,10 @@ class Unirad_Quick_Booking_V2 {
         add_action( 'woocommerce_checkout_create_order_line_item', array( __CLASS__, 'add_order_item_meta' ), 10, 4 );
         add_action( 'woocommerce_payment_complete',               array( __CLASS__, 'send_patient_confirmation' ), 20, 1 );
         add_action( 'woocommerce_order_status_processing',          array( __CLASS__, 'send_patient_confirmation' ), 20, 1 );
+        // Sipariş iptal/iade/başarısız olunca Bookly'deki hayalet randevuyu temizle
+        add_action( 'woocommerce_order_status_cancelled',           array( __CLASS__, 'remove_from_bookly' ), 10, 1 );
+        add_action( 'woocommerce_order_status_refunded',            array( __CLASS__, 'remove_from_bookly' ), 10, 1 );
+        add_action( 'woocommerce_order_status_failed',              array( __CLASS__, 'remove_from_bookly' ), 10, 1 );
 
         // ── Abandoned Booking Recovery ────────────────────────
         add_action( 'wp_ajax_unirad_qb2_save_lead',          array( __CLASS__, 'ajax_save_lead' ) );
@@ -1056,6 +1060,24 @@ class Unirad_Quick_Booking_V2 {
         self::write_to_bookly( $order_id );
     }
 
+    // Sipariş iptal/iade/başarısız → Bookly'deki randevuyu sil (hayalet kayıt önleme)
+    // Ödeme retry ile tamamlanırsa write_to_bookly randevuyu yeniden oluşturur.
+    public static function remove_from_bookly( $order_id ) {
+        global $wpdb;
+        $order = wc_get_order( $order_id );
+        if ( ! $order ) return;
+        $appt_id = (int) $order->get_meta( '_uqb_bookly_appt_id' );
+        if ( ! $appt_id ) return;
+        $bt = $wpdb->prefix . 'bookly_appointments';
+        if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$bt}'" ) ) return;
+
+        $wpdb->delete( $wpdb->prefix . 'bookly_customer_appointments', array( 'appointment_id' => $appt_id ), array( '%d' ) );
+        $wpdb->delete( $bt, array( 'id' => $appt_id ), array( '%d' ) );
+        $order->delete_meta_data( '_uqb_bookly_appt_id' );
+        $order->add_order_note( 'Bookly appointment #' . $appt_id . ' removed (order ' . $order->get_status() . ').' );
+        $order->save();
+    }
+
     public static function write_to_bookly( $order_id ) {
         global $wpdb;
         $order = wc_get_order( $order_id );
@@ -1153,6 +1175,9 @@ class Unirad_Quick_Booking_V2 {
                     array( '%s' ),
                     array( '%d' )
                 );
+                // Randevu ID'sini siparişe kaydet — iptal/iade olursa Bookly'den silinebilsin
+                $order->update_meta_data( '_uqb_bookly_appt_id', $appt_id );
+                $order->save();
                 // Clear session booking data after successful write
                 if ( WC()->session ) {
                     WC()->session->set( 'uqb_booking_date', '' );
