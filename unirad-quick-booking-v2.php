@@ -1084,7 +1084,10 @@ class Unirad_Quick_Booking_V2 {
                 $scan = $order->get_meta( '_uqb_scan_label' ) ?: $sess_scan;
             }
 
-            if ( ! $appt || ! $scan ) continue;
+            if ( ! $appt ) continue;
+            // Tarama adı hiçbir kaynakta yoksa randevuyu atlamak yerine sipariş
+            // numarasıyla yaz — takvimde görünsün, slot bloklu kalsın
+            if ( ! $scan ) $scan = 'MRI Scan (Order #' . $order_id . ')';
             $p = explode( ' ', trim( $appt ) );
             if ( count( $p ) < 2 ) continue;
             // Bookly uses WordPress timezone (London) — write local time directly
@@ -1105,7 +1108,18 @@ class Unirad_Quick_Booking_V2 {
             $use_service_id = uqb_get_bookly_service_id( $wc_product_id );
 
             $ex  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$bt} WHERE start_date=%s AND staff_id=%d LIMIT 1", $sdt, UQB_BOOKLY_STAFF_ID ) );
-            if ( $ex ) continue;
+            if ( $ex ) {
+                // Aynı slota başka kaynaktan (manuel/ScanBook/Bookly) kayıt düşmüş —
+                // ismi/fiyatı boşsa web siparişinden doldur ki takvimde "MRI scan" kalmasın
+                $ex_row = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT custom_service_name, custom_service_price FROM {$bt} WHERE id = %d", $ex
+                ), ARRAY_A );
+                $ex_upd = array();
+                if ( $ex_row && empty( $ex_row['custom_service_name'] ) ) $ex_upd['custom_service_name'] = $scan;
+                if ( $ex_row && ! (float) $ex_row['custom_service_price'] ) $ex_upd['custom_service_price'] = $order->get_total();
+                if ( $ex_upd ) $wpdb->update( $bt, $ex_upd, array( 'id' => $ex ) );
+                continue;
+            }
             $now = current_time( 'mysql' );
             $result = $wpdb->insert( $bt, array(
                 'staff_id'             => UQB_BOOKLY_STAFF_ID,
