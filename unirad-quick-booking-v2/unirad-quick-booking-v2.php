@@ -1088,6 +1088,12 @@ class Unirad_Quick_Booking_V2 {
             // Tarama adı hiçbir kaynakta yoksa randevuyu atlamak yerine sipariş
             // numarasıyla yaz — takvimde görünsün, slot bloklu kalsın
             if ( ! $scan ) $scan = 'MRI Scan (Order #' . $order_id . ')';
+
+            // Klostrofobik hasta takvimde bir bakışta görünsün (hasta bunu görmez, sadece Bookly)
+            $safety_meta = $item->get_meta( 'Safety Checklist' );
+            if ( $safety_meta && stripos( $safety_meta, 'Claustrophobia: Yes' ) !== false && stripos( $scan, 'CLAUSTRO' ) === false ) {
+                $scan .= ' ⚠CLAUSTRO';
+            }
             $p = explode( ' ', trim( $appt ) );
             if ( count( $p ) < 2 ) continue;
             // Bookly uses WordPress timezone (London) — write local time directly
@@ -1232,7 +1238,7 @@ class Unirad_Quick_Booking_V2 {
         $sq = isset( $values['uqb_safety'] ) ? $values['uqb_safety'] : array();
         if ( ! empty( $sq ) ) {
             $lines = array();
-            $map = array( 'sq_prev_mri' => 'Previous MRI', 'sq_pregnant' => 'Pregnant', 'sq_pacemaker' => 'Pacemaker/Implants', 'sq_implants_detail' => 'Implant Detail', 'sq_metal_body' => 'Metal in Body', 'sq_items' => 'Items Worn', 'sq_surgeries' => 'Surgeries' );
+            $map = array( 'sq_prev_mri' => 'Previous MRI', 'sq_pregnant' => 'Pregnant', 'sq_pacemaker' => 'Pacemaker/Implants', 'sq_implants_detail' => 'Implant Detail', 'sq_metal_body' => 'Metal in Body', 'sq_claustro' => 'Claustrophobia', 'sq_items' => 'Items Worn', 'sq_surgeries' => 'Surgeries' );
             foreach ( $map as $k => $lbl ) { if ( ! empty( $sq[$k] ) ) $lines[] = $lbl . ': ' . $sq[$k]; }
             $hu = isset( $sq['sq_height_unit'] ) ? $sq['sq_height_unit'] : 'metric';
             if ( $hu === 'metric' && ( ! empty( $sq['sq_height_cm'] ) || ! empty( $sq['sq_weight_kg'] ) ) ) {
@@ -1476,15 +1482,9 @@ class Unirad_Quick_Booking_V2 {
         </div>
       </div>
       <div id="uqb-claustro-block" style="display:none">
-        <div class="uqb-claustro-warn">
-          <div class="uqb-claustro-title">&#9888; Clinical Review Required</div>
-          <p class="uqb-claustro-msg">Thank you for letting us know. One of our clinical team will call you within 1 working hour to discuss your scan and ensure we can support you. Please confirm your phone number below — no payment is taken at this stage.</p>
-          <div class="uqb-f">
-            <label>Best phone number to reach you *</label>
-            <input type="tel" id="claustro_phone" placeholder="+44 7xxx xxxxxx">
-          </div>
-          <button type="button" id="uqbClaustroSubmit" class="uqb-btn uqb-btn--red">&#128222; Request a Clinical Call &rarr;</button>
-          <p class="uqb-claustro-note">Your scan enquiry will be held pending our call. No payment is taken at this stage.</p>
+        <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:14px 16px;margin:8px 0 12px">
+          <div style="font-weight:700;color:#065f46;margin-bottom:6px;font-size:13px">&#128154; Thank you for letting us know</div>
+          <p style="font-size:13px;color:#065f46;margin:0;line-height:1.5">Our team will be aware of this before your visit and will take extra care to make you comfortable — including talking you through the scan, music, and regular check-ins. You can continue with your booking as normal.</p>
         </div>
       </div>
       <div style="font-size:11px;font-weight:700;color:#3a4d68;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 6px">Are you wearing or do you have any of these?</div>
@@ -1891,20 +1891,14 @@ function updateConfirmBtn(){
   else{btn.disabled=!S.time;btn.textContent="Confirm & Pay \u2192";}
 }
 function checkClaustro(){
+  // Klostrofobi "Yes" ödemeyi BLOKLAMAZ — sadece destekleyici not gösterilir,
+  // cevap Safety Checklist ile ekibe iletilir (Gülistan Hanım talebi, Tem 2026)
   var c=ROOT.querySelector("[name=\"sq_claustro\"]:checked");
   var isYes=c&&c.value==="Yes";
   var block=q("#uqb-claustro-block");
-  var nextBtn=q("#uqbNext2");
   if(block)block.style.display=isYes?"block":"none";
-  if(nextBtn)nextBtn.style.display=isYes?"none":"";
-  if(isYes){
-    var ph=q("#claustro_phone"),ptPh=q("#pt_phone");
-    if(ph&&ptPh&&ptPh.value&&!ph.value)ph.value=ptPh.value;
-  }
 }
 function validateStep2(){
-  var claustro=ROOT.querySelector("[name=\"sq_claustro\"]:checked");
-  if(claustro&&claustro.value==="Yes"){alert("Please use the clinical call request form below — our team will contact you to arrange your scan.");return false;}
   var req=["pt_first","pt_last","pt_dob","pt_phone","pt_email","pt_reason","sq_surgeries"];
   for(var i=0;i<req.length;i++){
     var el=q("#"+req[i]);
