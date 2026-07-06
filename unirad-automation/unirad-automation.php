@@ -49,8 +49,15 @@ class Unirad_Automation {
         // Takvim adı onarımı saatte bir (gece cron'unu beklemeden)
         add_action( 'unirad_auto_hourly',  array( __CLASS__, 'backfill_service_names' ) );
         // Dosya üzerine yazılarak güncellendiğinde aktivasyon hook'u çalışmaz — cron'u garanti et
+        // + Bookly takvimi her açıldığında boş isimleri ANINDA onar (60 sn throttle)
         add_action( 'admin_init', function () {
             if ( ! wp_next_scheduled( 'unirad_auto_hourly' ) ) wp_schedule_event( time() + 300, 'hourly', 'unirad_auto_hourly' );
+
+            $pg = isset( $_GET['page'] ) ? (string) $_GET['page'] : '';
+            if ( ( strpos( $pg, 'bookly' ) !== false || $pg === 'unirad-director' ) && ! get_transient( 'ua_bf_throttle' ) ) {
+                set_transient( 'ua_bf_throttle', 1, 60 );
+                self::backfill_service_names();
+            }
         } );
 
         // AKIŞ 4 — Ödeme başarısız
