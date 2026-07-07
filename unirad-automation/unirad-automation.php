@@ -157,7 +157,17 @@ class Unirad_Automation {
 
     /* ── Takvim adı onarımı ──────────────────────────────────────────────── */
 
-    /** custom_service_name'i boş kalan randevuları WooCommerce siparişinden doldurur. */
+    /**
+     * custom_service_name'i boş kalan randevuları WooCommerce siparişinden doldurur.
+     *
+     * Bookly'de randevu sürükle-bırak ile taşındığında (reschedule) start_date değişir
+     * ama sipariş meta'sındaki orijinal tarih/saat DEĞİŞMEZ — bu yüzden tarih/saat
+     * eşleştirmesi taşınan randevularda kalıcı olarak kırılır. Üç geçişli çözüm:
+     *   1) ID ile eşleştirme  — order._uqb_bookly_appt_id → appointment.id (taşımaya dayanıklı, en hızlı)
+     *   2) Tarih/saat eşleşmesi — yeni/taşınmamış randevular için (eski davranış)
+     *   3) Müşteri (email/telefon) eşleşmesi — ID linki hiç kurulmamış eski/kopuk kayıtlar için
+     * Her başarılı eşleşmede sipariş ID linkiyle işaretlenir; bir daha asla kaybolmaz.
+     */
     public static function backfill_service_names() {
         global $wpdb;
         $bt = $wpdb->prefix . 'bookly_appointments';
@@ -165,39 +175,79 @@ class Unirad_Automation {
 
         $empty = $wpdb->get_results(
             "SELECT id, start_date, custom_service_name, custom_service_price FROM `{$bt}`
-             WHERE ( custom_service_name IS NULL OR custom_service_name = ''
+             WHERE ( custom_service_name IS NULL OR custom_service_name = '' OR custom_service_name = 'MRI scan' OR custom_service_name = 'MRI Scan'
                      OR custom_service_price IS NULL OR custom_service_price = 0 )
-               AND start_date > DATE_SUB(NOW(), INTERVAL 90 DAY)
-             LIMIT 100", ARRAY_A
+               AND start_date > DATE_SUB(NOW(), INTERVAL 180 DAY)
+             LIMIT 150", ARRAY_A
         );
         $fixed = 0;
+
         foreach ( $empty as $row ) {
-            $date = substr( $row['start_date'], 0, 10 );
-            $time = substr( $row['start_date'], 11, 5 );
-            $orders = wc_get_orders( array(
+            $order = null;
+
+            // 1) ID ile — reschedule'a dayanıklı, ana yol
+            $id_orders = wc_get_orders( array(
                 'limit'      => 1,
-                'meta_query' => array(
-                    array( 'key' => '_uqb_booking_date', 'value' => $date ),
-                    array( 'key' => '_uqb_booking_time', 'value' => $time ),
-                ),
+                'meta_query' => array( array( 'key' => '_uqb_bookly_appt_id', 'value' => $row['id'] ) ),
             ) );
-            if ( ! $orders ) continue;
-            $scan = $orders[0]->get_meta( '_uqb_scan_label' );
+            if ( $id_orders ) $order = $id_orders[0];
+
+            // 2) Tarih/saat ile — henüz taşınmamış yeni randevular
+            if ( ! $order ) {
+                $date = substr( $row['start_date'], 0, 10 );
+                $time = substr( $row['start_date'], 11, 5 );
+                $dt_orders = wc_get_orders( array(
+                    'limit'      => 1,
+                    'meta_query' => array(
+                        array( 'key' => '_uqb_booking_date', 'value' => $date ),
+                        array( 'key' => '_uqb_booking_time', 'value' => $time ),
+                    ),
+                ) );
+                if ( $dt_orders ) $order = $dt_orders[0];
+            }
+
+            // 3) Müşteri (email/telefon) ile — reschedule sonucu kopmuş eski kayıtlar
+            if ( ! $order ) {
+                $cust = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT c.email, c.phone FROM {$wpdb->prefix}bookly_customer_appointments ca
+                     JOIN {$wpdb->prefix}bookly_customers c ON c.id = ca.customer_id
+                     WHERE ca.appointment_id = %d LIMIT 1", $row['id']
+                ), ARRAY_A );
+                if ( $cust && ( $cust['email'] || $cust['phone'] ) ) {
+                    $mq = array( 'relation' => 'OR' );
+                    if ( $cust['email'] ) $mq[] = array( 'key' => '_billing_email', 'value' => $cust['email'] );
+                    if ( $cust['phone'] ) $mq[] = array( 'key' => '_billing_phone', 'value' => $cust['phone'] );
+                    $cand = wc_get_orders( array( 'limit' => 10, 'meta_query' => array( $mq ), 'orderby' => 'date', 'order' => 'DESC' ) );
+                    // Bu randevu satırına henüz bağlanmamış ilk siparişi al
+                    foreach ( $cand as $c_order ) {
+                        if ( ! $c_order->get_meta( '_uqb_bookly_appt_id' ) ) { $order = $c_order; break; }
+                    }
+                }
+            }
+
+            if ( ! $order ) continue;
+
+            $scan = $order->get_meta( '_uqb_scan_label' );
             if ( ! $scan ) {
-                foreach ( $orders[0]->get_items() as $item ) {
+                foreach ( $order->get_items() as $item ) {
                     $scan = $item->get_meta( 'Scan Details' );
                     break;
                 }
             }
             $upd = array();
-            if ( $scan && ! $row['custom_service_name'] ) $upd['custom_service_name'] = $scan;
-            if ( ! (float) $row['custom_service_price'] && (float) $orders[0]->get_total() > 0 ) {
-                $upd['custom_service_price'] = (float) $orders[0]->get_total();
+            if ( $scan && ( empty( $row['custom_service_name'] ) || in_array( $row['custom_service_name'], array( 'MRI scan', 'MRI Scan' ), true ) ) ) {
+                $upd['custom_service_name'] = $scan;
+            }
+            if ( ! (float) $row['custom_service_price'] && (float) $order->get_total() > 0 ) {
+                $upd['custom_service_price'] = (float) $order->get_total();
             }
             if ( $upd ) {
                 $wpdb->update( $bt, $upd, array( 'id' => $row['id'] ) );
                 $fixed++;
             }
+            // Bağlantıyı kalıcı kaydet — sonraki taşımalarda da anında bulunsun
+            $order->update_meta_data( '_uqb_bookly_appt_id', $row['id'] );
+            $order->save();
         }
         return $fixed;
     }

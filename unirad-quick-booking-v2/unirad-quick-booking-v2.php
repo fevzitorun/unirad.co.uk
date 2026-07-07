@@ -1146,6 +1146,10 @@ class Unirad_Quick_Booking_V2 {
                 if ( $ex_row && empty( $ex_row['custom_service_name'] ) ) $ex_upd['custom_service_name'] = $scan;
                 if ( $ex_row && ! (float) $ex_row['custom_service_price'] ) $ex_upd['custom_service_price'] = $order->get_total();
                 if ( $ex_upd ) $wpdb->update( $bt, $ex_upd, array( 'id' => $ex ) );
+                // ID bağlantısını kalıcı kaydet — randevu sonradan takvimde
+                // taşınsa bile (drag-drop reschedule) bu link tarih/saate bağlı değildir
+                $order->update_meta_data( '_uqb_bookly_appt_id', $ex );
+                $order->save();
                 continue;
             }
             $now = current_time( 'mysql' );
