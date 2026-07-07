@@ -173,11 +173,15 @@ class Unirad_Automation {
         $bt = $wpdb->prefix . 'bookly_appointments';
         if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$bt}'" ) || ! function_exists( 'wc_get_orders' ) ) return 0;
 
+        // ORDER BY şart: sıralama olmadan eski/birikmiş kayıtlar LIMIT kotasını
+        // doldurup bugünkü/yarınki randevuların hiç işlenmemesine yol açabiliyordu.
+        // "Şu ana en yakın" öncelikli işlensin — hem geçmiş hem yakın gelecek randevular hızlıca düzelsin.
         $empty = $wpdb->get_results(
             "SELECT id, start_date, custom_service_name, custom_service_price FROM `{$bt}`
              WHERE ( custom_service_name IS NULL OR custom_service_name = '' OR custom_service_name = 'MRI scan' OR custom_service_name = 'MRI Scan'
                      OR custom_service_price IS NULL OR custom_service_price = 0 )
                AND start_date > DATE_SUB(NOW(), INTERVAL 180 DAY)
+             ORDER BY ABS(TIMESTAMPDIFF(SECOND, start_date, NOW())) ASC
              LIMIT 150", ARRAY_A
         );
         $fixed = 0;
@@ -206,18 +210,25 @@ class Unirad_Automation {
                 if ( $dt_orders ) $order = $dt_orders[0];
             }
 
-            // 3) Müşteri (email/telefon) ile — reschedule sonucu kopmuş eski kayıtlar
+            // 3) Müşteri (email/telefon) ile — reschedule sonucu kopmuş eski kayıtlar.
+            // NOT: HPOS altında billing_email/billing_phone meta_query ile aranamaz
+            // (bunlar meta değil, orders tablosunda doğrudan kolon) — WooCommerce'in
+            // kendi 's' (search) parametresi kullanılmalı; bu, admin sipariş aramasının
+            // arkasındaki mekanizmayla aynıdır ve billing alanlarını doğru tarar.
             if ( ! $order ) {
                 $cust = $wpdb->get_row( $wpdb->prepare(
                     "SELECT c.email, c.phone FROM {$wpdb->prefix}bookly_customer_appointments ca
                      JOIN {$wpdb->prefix}bookly_customers c ON c.id = ca.customer_id
                      WHERE ca.appointment_id = %d LIMIT 1", $row['id']
                 ), ARRAY_A );
-                if ( $cust && ( $cust['email'] || $cust['phone'] ) ) {
-                    $mq = array( 'relation' => 'OR' );
-                    if ( $cust['email'] ) $mq[] = array( 'key' => '_billing_email', 'value' => $cust['email'] );
-                    if ( $cust['phone'] ) $mq[] = array( 'key' => '_billing_phone', 'value' => $cust['phone'] );
-                    $cand = wc_get_orders( array( 'limit' => 10, 'meta_query' => array( $mq ), 'orderby' => 'date', 'order' => 'DESC' ) );
+                if ( $cust ) {
+                    $cand = array();
+                    if ( ! empty( $cust['phone'] ) ) {
+                        $cand = array_merge( $cand, wc_get_orders( array( 'limit' => 10, 's' => $cust['phone'], 'orderby' => 'date', 'order' => 'DESC' ) ) );
+                    }
+                    if ( ! empty( $cust['email'] ) ) {
+                        $cand = array_merge( $cand, wc_get_orders( array( 'limit' => 10, 's' => $cust['email'], 'orderby' => 'date', 'order' => 'DESC' ) ) );
+                    }
                     // Bu randevu satırına henüz bağlanmamış ilk siparişi al
                     foreach ( $cand as $c_order ) {
                         if ( ! $c_order->get_meta( '_uqb_bookly_appt_id' ) ) { $order = $c_order; break; }
