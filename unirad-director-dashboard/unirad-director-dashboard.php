@@ -93,12 +93,41 @@ class Unirad_Director_Dashboard {
     /* ── Render ──────────────────────────────────────────────────────────── */
 
     public static function render() {
+        global $wpdb;
+        $bt = $wpdb->prefix . 'bookly_appointments';
+
         // Manuel takvim adı onarımı
         $fix_msg = '';
         if ( isset( $_POST['udd_fix_names'] ) && check_admin_referer( 'udd_fix' ) && class_exists( 'Unirad_Automation' ) ) {
             $n = Unirad_Automation::backfill_service_names();
-            $fix_msg = '<div class="notice notice-success"><p><strong>' . intval( $n ) . ' appointment(s) repaired.</strong> Empty scan names/prices were filled from WooCommerce orders. Rows without a matching order (manual entries) must be edited in Bookly directly.</p></div>';
+            $fix_msg = '<div class="notice notice-success"><p><strong>' . intval( $n ) . ' appointment(s) repaired.</strong> Empty scan names/prices were filled from WooCommerce orders. Appointments below with no matching order need a manual name (form further down).</p></div>';
         }
+
+        // Sipariş eşleşmeyen (muhtemelen telefon/elle girilmiş) randevu adlarını elle düzelt
+        if ( isset( $_POST['udd_manual_save'] ) && check_admin_referer( 'udd_manual' ) ) {
+            $mid  = absint( $_POST['udd_appt_id'] ?? 0 );
+            $name = sanitize_text_field( $_POST['udd_scan_name'] ?? '' );
+            $price = isset( $_POST['udd_price'] ) ? (float) $_POST['udd_price'] : null;
+            if ( $mid && $name ) {
+                $upd = array( 'custom_service_name' => $name );
+                if ( $price !== null && $price > 0 ) $upd['custom_service_price'] = $price;
+                $wpdb->update( $bt, $upd, array( 'id' => $mid ) );
+                $fix_msg .= '<div class="notice notice-success"><p><strong>Appointment #' . $mid . ' updated to "' . esc_html( $name ) . '".</strong></p></div>';
+            }
+        }
+
+        // Sipariş eşleşmeyen (custom_service_name hâlâ boş) yaklaşan randevular
+        $unmatched = $wpdb->get_results(
+            "SELECT a.id, a.start_date, a.custom_service_name,
+                    c.full_name, c.first_name, c.last_name, c.phone, c.email
+             FROM `{$bt}` a
+             LEFT JOIN {$wpdb->prefix}bookly_customer_appointments ca ON ca.appointment_id = a.id
+             LEFT JOIN {$wpdb->prefix}bookly_customers c ON c.id = ca.customer_id
+             WHERE ( a.custom_service_name IS NULL OR a.custom_service_name = '' )
+               AND a.start_date > DATE_SUB(NOW(), INTERVAL 7 DAY)
+             ORDER BY a.start_date ASC
+             LIMIT 30", ARRAY_A
+        );
 
         $today                = self::todays_appointments();
         list( $n_o, $rev_o )  = self::revenue_today();
@@ -185,6 +214,37 @@ class Unirad_Director_Dashboard {
                                     <td>£<?php echo number_format( (float) $o->get_total() ); ?></td>
                                     <td><?php echo esc_html( $o->get_date_created()->date_i18n( 'j M H:i' ) ); ?></td>
                                     <td><a href="<?php echo esc_url( $o->get_edit_order_url() ); ?>" class="button button-small">Open</a></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
+                </div>
+
+                <div style="background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:20px;grid-column:1/-1">
+                    <h2 style="margin-top:0">✏️ Appointments Missing a Scan Name (no matching order — phone/manual bookings)</h2>
+                    <p style="color:#787c82;font-size:13px;margin-top:-8px">These couldn't be auto-repaired because no WooCommerce order matches them. Type the real scan below and save — it will show correctly on the Bookly calendar immediately.</p>
+                    <?php if ( ! $unmatched ) : ?>
+                        <p style="color:#00a32a">✓ Nothing missing in the next 7 days.</p>
+                    <?php else : ?>
+                        <table class="widefat striped">
+                            <thead><tr><th>Date/Time</th><th>Patient</th><th>Scan Name</th><th>Price £</th><th></th></tr></thead>
+                            <tbody>
+                            <?php foreach ( $unmatched as $u ) :
+                                $name = trim( $u['full_name'] ?: ( $u['first_name'] . ' ' . $u['last_name'] ) );
+                                ?>
+                                <tr>
+                                    <td><?php echo esc_html( date_i18n( 'D j M, H:i', strtotime( $u['start_date'] ) ) ); ?></td>
+                                    <td><?php echo esc_html( $name ?: '—' ); ?><br><small><?php echo esc_html( $u['phone'] ); ?></small></td>
+                                    <td colspan="3">
+                                        <form method="post" style="display:flex;gap:8px;align-items:center">
+                                            <?php wp_nonce_field( 'udd_manual' ); ?>
+                                            <input type="hidden" name="udd_appt_id" value="<?php echo (int) $u['id']; ?>">
+                                            <input type="text" name="udd_scan_name" placeholder="e.g. Left Knee MRI" style="flex:1" required>
+                                            <input type="number" step="0.01" name="udd_price" placeholder="290.00" style="width:100px">
+                                            <button name="udd_manual_save" class="button button-primary">Save</button>
+                                        </form>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                             </tbody>
