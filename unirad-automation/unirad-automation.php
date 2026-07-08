@@ -155,6 +155,20 @@ class Unirad_Automation {
             . '</div>';
     }
 
+    /** Son 120 günün siparişlerini tek seferlik çekip önbelleğe alır (Pass 3 için). */
+    private static function recent_orders_cache() {
+        static $cache = null;
+        if ( $cache === null ) {
+            $cache = wc_get_orders( array(
+                'limit'   => 300,
+                'orderby' => 'date',
+                'order'   => 'DESC',
+                'date_created' => '>' . strtotime( '-120 days' ),
+            ) );
+        }
+        return $cache;
+    }
+
     /* ── Takvim adı onarımı ──────────────────────────────────────────────── */
 
     /**
@@ -211,27 +225,28 @@ class Unirad_Automation {
             }
 
             // 3) Müşteri (email/telefon) ile — reschedule sonucu kopmuş eski kayıtlar.
-            // NOT: HPOS altında billing_email/billing_phone meta_query ile aranamaz
-            // (bunlar meta değil, orders tablosunda doğrudan kolon) — WooCommerce'in
-            // kendi 's' (search) parametresi kullanılmalı; bu, admin sipariş aramasının
-            // arkasındaki mekanizmayla aynıdır ve billing alanlarını doğru tarar.
+            // NOT: wc_get_orders()'ın 's'/meta_query parametreleri billing_email/phone
+            // için GÜVENİLİR DEĞİL (HPOS'ta bunlar postmeta'da değil, ayrı adres
+            // tablosunda tutuluyor olabilir ve arama parametreleri sürüme göre değişir).
+            // Bu yüzden emin olmak için: son siparişleri PHP tarafında $order->get_billing_email()/
+            // get_billing_phone() ile karşılaştırıyoruz — bu metodlar HPOS/legacy farkı
+            // gözetmeksizin HER ZAMAN doğru sonuç verir.
             if ( ! $order ) {
                 $cust = $wpdb->get_row( $wpdb->prepare(
                     "SELECT c.email, c.phone FROM {$wpdb->prefix}bookly_customer_appointments ca
                      JOIN {$wpdb->prefix}bookly_customers c ON c.id = ca.customer_id
                      WHERE ca.appointment_id = %d LIMIT 1", $row['id']
                 ), ARRAY_A );
-                if ( $cust ) {
-                    $cand = array();
-                    if ( ! empty( $cust['phone'] ) ) {
-                        $cand = array_merge( $cand, wc_get_orders( array( 'limit' => 10, 's' => $cust['phone'], 'orderby' => 'date', 'order' => 'DESC' ) ) );
-                    }
-                    if ( ! empty( $cust['email'] ) ) {
-                        $cand = array_merge( $cand, wc_get_orders( array( 'limit' => 10, 's' => $cust['email'], 'orderby' => 'date', 'order' => 'DESC' ) ) );
-                    }
-                    // Bu randevu satırına henüz bağlanmamış ilk siparişi al
-                    foreach ( $cand as $c_order ) {
-                        if ( ! $c_order->get_meta( '_uqb_bookly_appt_id' ) ) { $order = $c_order; break; }
+                if ( $cust && ( $cust['email'] || $cust['phone'] ) ) {
+                    $norm_phone = $cust['phone'] ? preg_replace( '/\D+/', '', $cust['phone'] ) : '';
+                    $norm_phone = $norm_phone ? substr( $norm_phone, -10 ) : ''; // ülke kodu farkını yok say (son 10 hane)
+                    foreach ( self::recent_orders_cache() as $c_order ) {
+                        if ( $c_order->get_meta( '_uqb_bookly_appt_id' ) ) continue; // başka randevuya zaten bağlı
+                        $match_email = $cust['email'] && strcasecmp( $c_order->get_billing_email(), $cust['email'] ) === 0;
+                        $c_phone     = preg_replace( '/\D+/', '', $c_order->get_billing_phone() );
+                        $c_phone     = $c_phone ? substr( $c_phone, -10 ) : '';
+                        $match_phone = $norm_phone && $c_phone && $c_phone === $norm_phone;
+                        if ( $match_email || $match_phone ) { $order = $c_order; break; }
                     }
                 }
             }
