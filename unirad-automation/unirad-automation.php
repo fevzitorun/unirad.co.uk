@@ -48,15 +48,22 @@ class Unirad_Automation {
         add_action( 'unirad_auto_monthly', array( __CLASS__, 'run_monthly_revenue' ) );
         // Takvim adı onarımı saatte bir (gece cron'unu beklemeden)
         add_action( 'unirad_auto_hourly',  array( __CLASS__, 'backfill_service_names' ) );
+        // Tek seferlik arka plan tetikleyici — bkz aşağıdaki admin_init
+        add_action( 'unirad_auto_backfill_once', array( __CLASS__, 'backfill_service_names' ) );
         // Dosya üzerine yazılarak güncellendiğinde aktivasyon hook'u çalışmaz — cron'u garanti et
-        // + Bookly takvimi her açıldığında boş isimleri ANINDA onar (60 sn throttle)
+        // + Bookly takvimi açıldığında onarımı ARKA PLANA at (60 sn throttle).
+        // ÖNEMLİ: Bu işlem eskiden SENKRON çalışıyordu (sayfa yüklemesini blokluyordu) —
+        // paylaşımlı hosting'de kaynak tükenmesi + "critical error" (WSOD) sebebiyet verdi.
+        // Artık wp_schedule_single_event ile arka plana atılıyor, sayfa yüklemesi asla beklemez.
         add_action( 'admin_init', function () {
             if ( ! wp_next_scheduled( 'unirad_auto_hourly' ) ) wp_schedule_event( time() + 300, 'hourly', 'unirad_auto_hourly' );
 
             $pg = isset( $_GET['page'] ) ? (string) $_GET['page'] : '';
             if ( ( strpos( $pg, 'bookly' ) !== false || $pg === 'unirad-director' ) && ! get_transient( 'ua_bf_throttle' ) ) {
                 set_transient( 'ua_bf_throttle', 1, 60 );
-                self::backfill_service_names();
+                if ( ! wp_next_scheduled( 'unirad_auto_backfill_once' ) ) {
+                    wp_schedule_single_event( time(), 'unirad_auto_backfill_once' );
+                }
             }
         } );
 

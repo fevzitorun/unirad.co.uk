@@ -1081,7 +1081,7 @@ class Unirad_Quick_Booking_V2 {
     public static function write_to_bookly( $order_id ) {
         global $wpdb;
         $order = wc_get_order( $order_id );
-        if ( ! $order ) return;
+        if ( ! $order ) { error_log( "UQB DEBUG order#{$order_id}: order object not found, aborting" ); return; }
         $bt = $wpdb->prefix . 'bookly_appointments';
         if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$bt}'" ) ) return;
 
@@ -1090,10 +1090,14 @@ class Unirad_Quick_Booking_V2 {
         $sess_time  = WC()->session ? WC()->session->get( 'uqb_booking_time' ) : '';
         $sess_scan  = WC()->session ? WC()->session->get( 'uqb_scan_label' )   : '';
 
+        error_log( "UQB DEBUG order#{$order_id}: write_to_bookly called (hook context), current_filter=" . current_action() . ", sess_date={$sess_date}, sess_time={$sess_time}, sess_scan={$sess_scan}" );
+
         // Also read from order meta as fallback
         foreach ( $order->get_items() as $item ) {
             $appt = $item->get_meta( 'Appointment' );
             $scan = $item->get_meta( 'Scan Details' );
+
+            error_log( "UQB DEBUG order#{$order_id} item#{$item->get_id()}: item.Appointment=[{$appt}] item.'Scan Details'=[{$scan}]" );
 
             // Use order-level meta if item meta not populated yet
             if ( ! $appt ) {
@@ -1101,15 +1105,20 @@ class Unirad_Quick_Booking_V2 {
                 $ord_time = $order->get_meta( '_uqb_booking_time' );
                 if ( $ord_date && $ord_time ) $appt = $ord_date . ' ' . $ord_time;
                 elseif ( $sess_date && $sess_time ) $appt = $sess_date . ' ' . $sess_time;
+                error_log( "UQB DEBUG order#{$order_id}: item.Appointment empty, fallback -> order_date={$ord_date} order_time={$ord_time} resolved_appt=[{$appt}]" );
             }
             if ( ! $scan ) {
                 $scan = $order->get_meta( '_uqb_scan_label' ) ?: $sess_scan;
+                error_log( "UQB DEBUG order#{$order_id}: item.'Scan Details' empty, fallback to order/_uqb_scan_label or session -> resolved_scan=[{$scan}]" );
             }
 
-            if ( ! $appt ) continue;
+            if ( ! $appt ) { error_log( "UQB DEBUG order#{$order_id}: appt still empty after all fallbacks — SKIPPING item, no Bookly write will happen" ); continue; }
             // Tarama adı hiçbir kaynakta yoksa randevuyu atlamak yerine sipariş
             // numarasıyla yaz — takvimde görünsün, slot bloklu kalsın
-            if ( ! $scan ) $scan = 'MRI Scan (Order #' . $order_id . ')';
+            if ( ! $scan ) {
+                $scan = 'MRI Scan (Order #' . $order_id . ')';
+                error_log( "UQB DEBUG order#{$order_id}: scan still empty after all fallbacks — using placeholder [{$scan}]" );
+            }
 
             // Klostrofobik hasta takvimde bir bakışta görünsün (hasta bunu görmez, sadece Bookly)
             $safety_meta = $item->get_meta( 'Safety Checklist' );
@@ -1137,21 +1146,31 @@ class Unirad_Quick_Booking_V2 {
 
             $ex  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$bt} WHERE start_date=%s AND staff_id=%d LIMIT 1", $sdt, UQB_BOOKLY_STAFF_ID ) );
             if ( $ex ) {
-                // Aynı slota başka kaynaktan (manuel/ScanBook/Bookly) kayıt düşmüş —
-                // ismi/fiyatı boşsa web siparişinden doldur ki takvimde "MRI scan" kalmasın
+                // Aynı slota başka kaynaktan (manuel/ScanBook/Bookly'nin kendi native
+                // WooCommerce entegrasyonu) kayıt düşmüş olabilir — ismi boşsa VEYA
+                // genel "MRI scan"/"MRI Scan" placeholder ise web siparişinden doldur.
+                // (Sadece empty() kontrolü yetmiyordu: Bookly bazen custom_service_name'i
+                // kendiliğinden linked service'in adıyla dolduruyor — bu durumda alan
+                // "boş" sayılmıyor ve gerçek tarama adı asla yazılmıyordu.)
                 $ex_row = $wpdb->get_row( $wpdb->prepare(
                     "SELECT custom_service_name, custom_service_price FROM {$bt} WHERE id = %d", $ex
                 ), ARRAY_A );
+                error_log( "UQB DEBUG order#{$order_id}: existing Bookly row #{$ex} found at slot {$sdt} — current custom_service_name=[" . ( $ex_row['custom_service_name'] ?? 'NULL' ) . "] our scan=[{$scan}]" );
+                $is_generic = $ex_row && ( empty( $ex_row['custom_service_name'] ) || in_array( trim( $ex_row['custom_service_name'] ), array( 'MRI scan', 'MRI Scan' ), true ) );
                 $ex_upd = array();
-                if ( $ex_row && empty( $ex_row['custom_service_name'] ) ) $ex_upd['custom_service_name'] = $scan;
+                if ( $is_generic ) $ex_upd['custom_service_name'] = $scan;
                 if ( $ex_row && ! (float) $ex_row['custom_service_price'] ) $ex_upd['custom_service_price'] = $order->get_total();
-                if ( $ex_upd ) $wpdb->update( $bt, $ex_upd, array( 'id' => $ex ) );
+                if ( $ex_upd ) {
+                    $wpdb->update( $bt, $ex_upd, array( 'id' => $ex ) );
+                    error_log( "UQB DEBUG order#{$order_id}: updated existing row #{$ex} with " . wp_json_encode( $ex_upd ) );
+                }
                 // ID bağlantısını kalıcı kaydet — randevu sonradan takvimde
                 // taşınsa bile (drag-drop reschedule) bu link tarih/saate bağlı değildir
                 $order->update_meta_data( '_uqb_bookly_appt_id', $ex );
                 $order->save();
                 continue;
             }
+            error_log( "UQB DEBUG order#{$order_id}: no existing row at slot {$sdt} — inserting new appointment with custom_service_name=[{$scan}]" );
             $now = current_time( 'mysql' );
             $result = $wpdb->insert( $bt, array(
                 'staff_id'             => UQB_BOOKLY_STAFF_ID,
