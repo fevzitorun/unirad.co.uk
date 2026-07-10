@@ -197,9 +197,12 @@ class Unirad_Automation {
         // ORDER BY şart: sıralama olmadan eski/birikmiş kayıtlar LIMIT kotasını
         // doldurup bugünkü/yarınki randevuların hiç işlenmemesine yol açabiliyordu.
         // "Şu ana en yakın" öncelikli işlensin — hem geçmiş hem yakın gelecek randevular hızlıca düzelsin.
+        // NOT: 'MRI scan'/'MRI Scan' gibi kesin string eşleşmesi güvenilmez çıktı —
+        // Bookly'nin kendi yazdığı değer farklı harf/boşluk varyasyonlarında olabiliyordu.
+        // LOWER(TRIM()) ile büyük/küçük harf ve baştaki/sondaki boşluk farkını yok sayıyoruz.
         $empty = $wpdb->get_results(
             "SELECT id, start_date, custom_service_name, custom_service_price FROM `{$bt}`
-             WHERE ( custom_service_name IS NULL OR custom_service_name = '' OR custom_service_name = 'MRI scan' OR custom_service_name = 'MRI Scan'
+             WHERE ( custom_service_name IS NULL OR custom_service_name = '' OR LOWER(TRIM(custom_service_name)) = 'mri scan'
                      OR custom_service_price IS NULL OR custom_service_price = 0 )
                AND start_date > DATE_SUB(NOW(), INTERVAL 180 DAY)
              ORDER BY ABS(TIMESTAMPDIFF(SECOND, start_date, NOW())) ASC
@@ -267,8 +270,11 @@ class Unirad_Automation {
                     break;
                 }
             }
+            // Sipariş bulunduysa artık koşulsuz yazıyoruz — WooCommerce siparişi
+            // otoriter kaynak, mevcut değer ne olursa olsun (case/whitespace farkı,
+            // ya da Bookly'nin kendi yazdığı beklenmedik bir metin) üzerine yazılır.
             $upd = array();
-            if ( $scan && ( empty( $row['custom_service_name'] ) || in_array( $row['custom_service_name'], array( 'MRI scan', 'MRI Scan' ), true ) ) ) {
+            if ( $scan ) {
                 $upd['custom_service_name'] = $scan;
             }
             if ( ! (float) $row['custom_service_price'] && (float) $order->get_total() > 0 ) {

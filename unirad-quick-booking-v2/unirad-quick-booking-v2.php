@@ -1147,23 +1147,20 @@ class Unirad_Quick_Booking_V2 {
             $ex  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$bt} WHERE start_date=%s AND staff_id=%d LIMIT 1", $sdt, UQB_BOOKLY_STAFF_ID ) );
             if ( $ex ) {
                 // Aynı slota başka kaynaktan (manuel/ScanBook/Bookly'nin kendi native
-                // WooCommerce entegrasyonu) kayıt düşmüş olabilir — ismi boşsa VEYA
-                // genel "MRI scan"/"MRI Scan" placeholder ise web siparişinden doldur.
-                // (Sadece empty() kontrolü yetmiyordu: Bookly bazen custom_service_name'i
-                // kendiliğinden linked service'in adıyla dolduruyor — bu durumda alan
-                // "boş" sayılmıyor ve gerçek tarama adı asla yazılmıyordu.)
+                // WooCommerce entegrasyonu) kayıt düşmüş olabilir. Daha önce burada
+                // "isim zaten dolu mu" diye kontrol edip sadece boşsa/generic ise
+                // yazıyorduk — bu güvenilmez çıktı (Bookly'nin kendi yazdığı değer
+                // beklenmedik biçimlerde olabiliyor, string eşleşmesi kaçırıyordu).
+                // ARTIK KOŞULSUZ: Bu order'daki gerçek veri (WooCommerce siparişi)
+                // HER ZAMAN otoriter kaynaktır — orada ne yazılı olursa olsun üzerine yazıyoruz.
                 $ex_row = $wpdb->get_row( $wpdb->prepare(
                     "SELECT custom_service_name, custom_service_price FROM {$bt} WHERE id = %d", $ex
                 ), ARRAY_A );
-                error_log( "UQB DEBUG order#{$order_id}: existing Bookly row #{$ex} found at slot {$sdt} — current custom_service_name=[" . ( $ex_row['custom_service_name'] ?? 'NULL' ) . "] our scan=[{$scan}]" );
-                $is_generic = $ex_row && ( empty( $ex_row['custom_service_name'] ) || in_array( trim( $ex_row['custom_service_name'] ), array( 'MRI scan', 'MRI Scan' ), true ) );
-                $ex_upd = array();
-                if ( $is_generic ) $ex_upd['custom_service_name'] = $scan;
-                if ( $ex_row && ! (float) $ex_row['custom_service_price'] ) $ex_upd['custom_service_price'] = $order->get_total();
-                if ( $ex_upd ) {
-                    $wpdb->update( $bt, $ex_upd, array( 'id' => $ex ) );
-                    error_log( "UQB DEBUG order#{$order_id}: updated existing row #{$ex} with " . wp_json_encode( $ex_upd ) );
-                }
+                error_log( "UQB DEBUG order#{$order_id}: existing Bookly row #{$ex} found at slot {$sdt} — current custom_service_name=[" . ( $ex_row['custom_service_name'] ?? 'NULL' ) . "] FORCING our scan=[{$scan}]" );
+                $ex_upd = array( 'custom_service_name' => $scan );
+                if ( (float) $order->get_total() > 0 ) $ex_upd['custom_service_price'] = $order->get_total();
+                $wpdb->update( $bt, $ex_upd, array( 'id' => $ex ) );
+                error_log( "UQB DEBUG order#{$order_id}: FORCE-updated existing row #{$ex} with " . wp_json_encode( $ex_upd ) );
                 // ID bağlantısını kalıcı kaydet — randevu sonradan takvimde
                 // taşınsa bile (drag-drop reschedule) bu link tarih/saate bağlı değildir
                 $order->update_meta_data( '_uqb_bookly_appt_id', $ex );
