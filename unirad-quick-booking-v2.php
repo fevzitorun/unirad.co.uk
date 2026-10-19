@@ -50,6 +50,48 @@ if ( ! function_exists( 'uqb_section' ) ) {
         return '<div style="background:#0d1f3c;color:#ffffff;font-size:11px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;padding:6px 10px;margin-top:16px">' . $title . '</div>';
     }
 }
+if ( ! function_exists( 'uqb_row_link' ) ) {
+    function uqb_row_link( $label, $url ) {
+        if ( ! $url ) return '';
+        return '<div style="padding:7px 0;border-bottom:1px solid #eee"><span style="display:inline-block;width:160px;font-weight:bold;color:#3a4d68;vertical-align:top">' . esc_html( $label ) . ':</span><span><a href="' . esc_url( $url ) . '" style="color:#00a896">View file &rarr;</a></span></div>';
+    }
+}
+if ( ! function_exists( 'uqb_upload_dir_patient_docs' ) ) {
+    // Hasta belgelerini ayrı bir alt klasöre koyar (uploads/patient-docs/)
+    function uqb_upload_dir_patient_docs( $dirs ) {
+        $dirs['subdir'] = '/patient-docs' . $dirs['subdir'];
+        $dirs['path']   = $dirs['basedir'] . $dirs['subdir'];
+        $dirs['url']    = $dirs['baseurl'] . $dirs['subdir'];
+        return $dirs;
+    }
+}
+if ( ! function_exists( 'uqb_handle_patient_upload' ) ) {
+    // Hasta tarafından yüklenen belgeyi (referral letter, önceki tarama) tahmin
+    // edilemez bir isimle kaydeder ve URL döner.
+    // NOT (14 Eyl 2026 fix): önceden $_FILES sunucu tarafında HİÇ okunmuyordu —
+    // hastanın yüklediği belgeler tarayıcıdan gönderiliyor ama sessizce kayboluyordu.
+    function uqb_handle_patient_upload( $field ) {
+        if ( empty( $_FILES[ $field ] ) || empty( $_FILES[ $field ]['tmp_name'] ) || $_FILES[ $field ]['error'] !== UPLOAD_ERR_OK ) {
+            return '';
+        }
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        $allowed = array(
+            'pdf'  => 'application/pdf',
+            'jpg'  => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'png'  => 'image/png',
+            'doc'  => 'application/msword',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        );
+        $file         = $_FILES[ $field ];
+        $ext          = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
+        $file['name'] = 'uqb-doc-' . bin2hex( random_bytes( 16 ) ) . ( $ext ? '.' . $ext : '' );
+        add_filter( 'upload_dir', 'uqb_upload_dir_patient_docs' );
+        $result = wp_handle_upload( $file, array( 'test_form' => false, 'mimes' => $allowed ) );
+        remove_filter( 'upload_dir', 'uqb_upload_dir_patient_docs' );
+        return ( isset( $result['url'] ) && empty( $result['error'] ) ) ? $result['url'] : '';
+    }
+}
 
 // ── Scan duration calculator ──────────────────────────────────────────────────
 // Rules (minutes):
@@ -127,6 +169,10 @@ class Unirad_Quick_Booking_V2 {
         add_action( 'woocommerce_checkout_create_order_line_item', array( __CLASS__, 'add_order_item_meta' ), 10, 4 );
         add_action( 'woocommerce_payment_complete',               array( __CLASS__, 'send_patient_confirmation' ), 20, 1 );
         add_action( 'woocommerce_order_status_processing',          array( __CLASS__, 'send_patient_confirmation' ), 20, 1 );
+        // Sipariş iptal/iade/başarısız olunca Bookly'deki hayalet randevuyu temizle
+        add_action( 'woocommerce_order_status_cancelled',           array( __CLASS__, 'remove_from_bookly' ), 10, 1 );
+        add_action( 'woocommerce_order_status_refunded',            array( __CLASS__, 'remove_from_bookly' ), 10, 1 );
+        add_action( 'woocommerce_order_status_failed',              array( __CLASS__, 'remove_from_bookly' ), 10, 1 );
 
         // ── Abandoned Booking Recovery ────────────────────────
         add_action( 'wp_ajax_unirad_qb2_save_lead',          array( __CLASS__, 'ajax_save_lead' ) );
@@ -142,16 +188,21 @@ class Unirad_Quick_Booking_V2 {
     }
 
     // ── Brevo transactional email ────────────────────────────
-    private static function brevo_send( $to_email, $to_name, $subject, $html_body ) {
+    // $attachments: array of array( 'name' => original filename, 'path' => absolute path on disk )
+    private static function brevo_send( $to_email, $to_name, $subject, $html_body, $attachments = array() ) {
         $api_key = UQB_BREVO_API_KEY;
 
         // Wrap in full HTML document — required for proper rendering in all email clients
         $full_html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . esc_html($subject) . '</title></head><body style="margin:0;padding:20px;background:#f4f6f9;font-family:Arial,sans-serif">' . $html_body . '</body></html>';
 
+        $attachments = array_values( array_filter( (array) $attachments, function ( $a ) {
+            return ! empty( $a['path'] ) && is_readable( $a['path'] );
+        } ) );
+
         if ( empty( $api_key ) ) {
             // No Brevo key set — fall back to wp_mail
             $headers = array( 'Content-Type: text/html; charset=UTF-8' );
-            wp_mail( $to_email, $subject, $full_html, $headers );
+            wp_mail( $to_email, $subject, $full_html, $headers, wp_list_pluck( $attachments, 'path' ) );
             return;
         }
         $payload = array(
@@ -161,15 +212,107 @@ class Unirad_Quick_Booking_V2 {
             'htmlContent' => $full_html,
             'textContent' => wp_strip_all_tags( $html_body ),
         );
-        wp_remote_post( 'https://api.brevo.com/v3/smtp/email', array(
+        if ( $attachments ) {
+            $payload['attachment'] = array();
+            foreach ( $attachments as $a ) {
+                $payload['attachment'][] = array(
+                    'name'    => $a['name'],
+                    'content' => base64_encode( file_get_contents( $a['path'] ) ),
+                );
+            }
+        }
+        $args = array(
             'headers' => array(
                 'api-key'      => $api_key,
                 'Content-Type' => 'application/json',
                 'Accept'       => 'application/json',
             ),
             'body'    => wp_json_encode( $payload ),
-            'timeout' => 15,
-        ) );
+            'timeout' => $attachments ? 45 : 15,
+        );
+        $res  = wp_remote_post( 'https://api.brevo.com/v3/smtp/email', $args );
+        $code = is_wp_error( $res ) ? 0 : (int) wp_remote_retrieve_response_code( $res );
+
+        // If Brevo rejected the attachment (size/type), still deliver the email without it
+        // so the booking is never lost — and say so in the body.
+        if ( $attachments && ( $code < 200 || $code >= 300 ) ) {
+            error_log( 'UQB brevo_send attachment failed (' . $code . '): ' . ( is_wp_error( $res ) ? $res->get_error_message() : wp_remote_retrieve_body( $res ) ) );
+            unset( $payload['attachment'] );
+            $note = '<div style="background:#fee2e2;border-left:4px solid #dc2626;padding:10px 14px;margin-bottom:12px;color:#991b1b;font-weight:bold">Attachment could not be emailed. Files are saved on the server: ' . esc_html( implode( ', ', wp_list_pluck( $attachments, 'name' ) ) ) . '</div>';
+            $payload['htmlContent'] = str_replace( '<body style="margin:0;padding:20px;background:#f4f6f9;font-family:Arial,sans-serif">', '<body style="margin:0;padding:20px;background:#f4f6f9;font-family:Arial,sans-serif">' . $note, $full_html );
+            $args['body']    = wp_json_encode( $payload );
+            $args['timeout'] = 15;
+            wp_remote_post( 'https://api.brevo.com/v3/smtp/email', $args );
+        }
+    }
+
+    // ── Patient uploads (referral letter / previous report) ──
+    // Validates each uploaded file, moves it to a non-public folder and returns
+    // array( array( 'label', 'name', 'path' ) ) ready for brevo_send().
+    private static function collect_uploads() {
+        $fields = array(
+            'gp_file'   => 'Referral Letter',
+            'prev_file' => 'Previous Scan / Report',
+        );
+        $mimes = array(
+            'pdf'      => 'application/pdf',
+            'jpg|jpeg' => 'image/jpeg',
+            'png'      => 'image/png',
+            'doc'      => 'application/msword',
+            'docx'     => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        );
+        $out = array();
+
+        foreach ( $fields as $field => $label ) {
+            if ( empty( $_FILES[ $field ] ) || ! is_array( $_FILES[ $field ] ) ) continue;
+            $f = $_FILES[ $field ];
+            if ( ! isset( $f['error'] ) || $f['error'] !== UPLOAD_ERR_OK ) {
+                if ( isset( $f['error'] ) && $f['error'] !== UPLOAD_ERR_NO_FILE ) {
+                    error_log( 'UQB upload ' . $field . ' failed with PHP error code ' . $f['error'] );
+                }
+                continue;
+            }
+            if ( ! is_uploaded_file( $f['tmp_name'] ) || $f['size'] <= 0 || $f['size'] > 10 * MB_IN_BYTES ) continue;
+
+            $name  = sanitize_file_name( wp_unslash( $f['name'] ) );
+            $check = wp_check_filetype_and_ext( $f['tmp_name'], $name, $mimes );
+            if ( empty( $check['ext'] ) || empty( $check['type'] ) ) {
+                error_log( 'UQB upload ' . $field . ' rejected: unsupported type (' . $name . ')' );
+                continue;
+            }
+            if ( ! empty( $check['proper_filename'] ) ) $name = $check['proper_filename'];
+
+            $dir = self::private_upload_dir();
+            if ( ! $dir ) continue;
+            $dest = $dir . '/' . gmdate( 'Ymd-His' ) . '-' . wp_generate_password( 10, false ) . '-' . $name;
+            if ( ! @move_uploaded_file( $f['tmp_name'], $dest ) ) continue;
+            @chmod( $dest, 0640 );
+
+            $out[] = array( 'label' => $label, 'name' => $name, 'path' => $dest );
+        }
+        return $out;
+    }
+
+    // Uploads hold patient medical documents — keep them out of public reach.
+    private static function private_upload_dir() {
+        $up  = wp_upload_dir();
+        $dir = trailingslashit( $up['basedir'] ) . 'uqb-patient-files';
+        if ( ! is_dir( $dir ) && ! wp_mkdir_p( $dir ) ) return '';
+        if ( ! file_exists( $dir . '/.htaccess' ) ) @file_put_contents( $dir . '/.htaccess', "Require all denied\nDeny from all\n" );
+        if ( ! file_exists( $dir . '/index.php' ) ) @file_put_contents( $dir . '/index.php', "<?php // Silence is golden.\n" );
+        return $dir;
+    }
+
+    // Email row listing what the patient uploaded (or a warning if nothing arrived).
+    private static function uploads_rows( $files, $referral ) {
+        $s = '';
+        foreach ( $files as $f ) {
+            $s .= uqb_row( $f['label'], '📎 ' . $f['name'] . ' (attached)' );
+        }
+        if ( $referral === 'gp' && ! in_array( 'Referral Letter', wp_list_pluck( $files, 'label' ), true ) ) {
+            $s .= uqb_row( 'Referral Letter', 'Not uploaded — ask patient / GP to email it' );
+        }
+        return $s;
     }
 
     // ── Bookly available slots from DB ───────────────────────
@@ -182,28 +325,7 @@ class Unirad_Quick_Booking_V2 {
         $scan_dur  = isset( $_POST['duration'] ) ? (int) $_POST['duration'] : 60;
         $scan_dur  = max( 30, min( 240, $scan_dur ) ); // clamp to valid range
         $staff_id  = (int) UQB_BOOKLY_STAFF_ID;
-        $dow_map   = array( 'sunday','monday','tuesday','wednesday','thursday','friday','saturday' );
-        $dow       = $dow_map[ (int) date( 'w', strtotime( $date ) ) ];
-
-        // Get staff working hours for this day
-        $schedule  = $wpdb->get_row( $wpdb->prepare(
-            "SELECT start_time, end_time FROM {$wpdb->prefix}bookly_staff_schedule_items
-             WHERE staff_id = %d AND day_index = %s AND start_time IS NOT NULL",
-            $staff_id, $dow
-        ) );
-
-        $slots = array();
-
-        // ── Clinic schedule rules ─────────────────────────────────────────
-        // Mon(1) / Wed(3) / Fri(5): 09:30 – 19:30 (half-hour slots)
-        // Tue(2) / Thu(4):          09:30 – 16:30 (half-hour slots)
-        // Sat(6) / Sun(7):          CLOSED
-        //
-        // Lead time rules:
-        //   TODAY:    earliest = now + 6 hours (rounded up to next half hour)
-        //   TOMORROW: earliest = 11:00
-        //   AFTER:    earliest = 09:30
-        // ─────────────────────────────────────────────────────────────────
+        $slots     = array();
 
         $tz       = new DateTimeZone( 'Europe/London' );
         $now      = new DateTime( 'now', $tz );
@@ -227,23 +349,35 @@ class Unirad_Quick_Booking_V2 {
             return;
         }
 
-        // Day-of-week → last slot (minutes from midnight, 0 = closed)
-        // Mon/Wed/Fri: last slot 19:30, Tue/Thu: last slot 16:30
-        $dow_num = (int) date( 'N', strtotime( $date ) ); // 1=Mon … 7=Sun
-        // end_mins = minute value of LAST slot + 1 (exclusive)
-        // Mon/Wed/Fri: 10:00–19:00 (last slot 19:00=1140, exclusive end 1170)
-        // Tue/Thu:     10:00–16:00 (last slot 16:00=960,  exclusive end 990)
-        // Saturday:    10:00–15:00 (last slot 15:00=900,  exclusive end 930)
-        // Sunday:      closed
-        $day_end_mins = array( 1=>1170, 2=>990, 3=>1170, 4=>990, 5=>1170, 6=>930, 7=>0 );
-        $end_mins = isset( $day_end_mins[$dow_num] ) ? $day_end_mins[$dow_num] : 0;
+        // ── Çalışma saatleri: artık Bookly'nin kendi Staff → Schedule ayarından
+        // CANLI okunuyor — kod içinde sabit saat YOK. Bookly'de değiştirdiğiniz an
+        // (Add break dahil) site otomatik senkron olur, bir daha elle eşleştirme gerekmez.
+        // NOT: Bookly'de day_index = 1=Pazar … 7=Cumartesi (PHP date('w')+1 ile aynı,
+        // ISO/date('N') İLE AYNI DEĞİL — 14 Ağustos'ta gerçek veriyle doğrulandı).
+        $dow_index = ( (int) date( 'w', strtotime( $date ) ) ) + 1; // 1=Sun … 7=Sat
 
-        if ( $end_mins === 0 ) {
-            wp_send_json_success( array( 'slots' => array() ) );
+        $sched = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, start_time, end_time FROM {$wpdb->prefix}bookly_staff_schedule_items
+             WHERE staff_id = %d AND day_index = %d",
+            $staff_id, $dow_index
+        ) );
+
+        if ( ! $sched || ! $sched->start_time || ! $sched->end_time ) {
+            wp_send_json_success( array( 'slots' => array() ) ); // Bookly'de bu gün kapalı
             return;
         }
 
-        // Start slot in minutes from midnight
+        $open_mins = ( (int) substr( $sched->start_time, 0, 2 ) ) * 60 + (int) substr( $sched->start_time, 3, 2 );
+        $end_mins  = ( (int) substr( $sched->end_time,   0, 2 ) ) * 60 + (int) substr( $sched->end_time,   3, 2 );
+
+        // Bookly'de bu gün için tanımlı mola(lar) varsa (Staff → Schedule → Add break)
+        // aşağıda booked_mins'e eklenip otomatik bloklanacak.
+        $sched_breaks = $wpdb->get_results( $wpdb->prepare(
+            "SELECT start_time, end_time FROM {$wpdb->prefix}bookly_schedule_item_breaks
+             WHERE staff_schedule_item_id = %d",
+            $sched->id
+        ) );
+
         if ( $date === $today ) {
             // 3-hour lead time in London time, round up to next :30 slot
             $earliest = clone $now;
@@ -256,22 +390,22 @@ class Unirad_Quick_Booking_V2 {
             } else {
                 $e_mins = $e_mins - $remainder + 90; // next hour :30
             }
-            $start_mins = max( 600, $e_mins ); // minimum 10:00
+            $start_mins = max( $open_mins, $e_mins );
             // If earliest available slot is past the last slot of the day, today is full
             if ( $start_mins > $end_mins - 30 ) {
                 wp_send_json_success( array( 'slots' => array() ) );
                 return;
             }
         } elseif ( $date === $tomorrow ) {
-            // If order placed before 14:00 London time → tomorrow starts 09:30 (or 10:00 for Saturday)
-            // If order placed at/after 14:00 London time → tomorrow starts 11:30
+            // If order placed before 14:00 London time → tomorrow starts at opening
+            // If order placed at/after 14:00 London time → tomorrow starts 90 min later
             $now_hour  = (int)$now->format('H');
             $now_min   = (int)$now->format('i');
             $now_total = $now_hour * 60 + $now_min;
-            $start_mins = ( $now_total < 840 ) ? 600 : 690; // before 14:00 → 10:00, after → 11:30
+            $start_mins = ( $now_total < 840 ) ? $open_mins : ( $open_mins + 90 );
         } else {
-            // All days start at 10:00
-            $start_mins = 600;
+            // All other future days start at opening
+            $start_mins = $open_mins;
         }
 
         // ── Get booked slots from Bookly ──────────────────────────────────
@@ -297,7 +431,8 @@ class Unirad_Quick_Booking_V2 {
                         $s_m = (int)substr($appt->start_date, 11, 2) * 60 + (int)substr($appt->start_date, 14, 2);
                         $e_m = (int)substr($appt->end_date,   11, 2) * 60 + (int)substr($appt->end_date,   14, 2);
                         // 30-min granularity: block every half-hour slot that overlaps the appointment
-                        for ( $bm = 570; $bm < 1200; $bm += 30 ) {
+                        // (540=09:00 kapsanır — yeni açılış saatiyle uyumlu)
+                        for ( $bm = 540; $bm < 1200; $bm += 30 ) {
                             if ( $bm < $e_m && ( $bm + 30 ) > $s_m ) {
                                 $booked[] = sprintf( '%02d:%02d', intdiv($bm,60), $bm%60 );
                             }
@@ -348,6 +483,16 @@ class Unirad_Quick_Booking_V2 {
             $bp = explode( ':', $bt );
             $booked_mins[] = (int)$bp[0] * 60 + (int)( isset($bp[1]) ? $bp[1] : 0 );
         }
+        // Bookly'de tanımlı mola varsa (örn. öğle molası) burada otomatik bloklanır —
+        // sadece tam o saatte başlayan değil, o aralığı kapsayan her tarama da elenir.
+        foreach ( $sched_breaks as $br ) {
+            if ( ! $br->start_time || ! $br->end_time ) continue;
+            $bs = ( (int) substr( $br->start_time, 0, 2 ) ) * 60 + (int) substr( $br->start_time, 3, 2 );
+            $be = ( (int) substr( $br->end_time,   0, 2 ) ) * 60 + (int) substr( $br->end_time,   3, 2 );
+            for ( $bm = $bs; $bm < $be; $bm += 30 ) {
+                $booked_mins[] = $bm;
+            }
+        }
         $booked_mins = array_unique( $booked_mins );
 
         // ── Generate half-hour slots ──────────────────────────────────────
@@ -355,6 +500,12 @@ class Unirad_Quick_Booking_V2 {
         $now_mins = (int)$now->format('H') * 60 + (int)$now->format('i');
 
         for ( $m = $start_mins; $m < $end_mins; $m += 30 ) {
+            // Taramanın süresi kapanış saatinden (end_mins) taşıyorsa bu slotu hiç listeleme
+            // — kök neden fix: uzun/çoklu-bölge taramalar artık son slota sığdırılamıyor.
+            if ( $m + $scan_dur > $end_mins ) {
+                continue;
+            }
+
             $t = sprintf( '%02d:%02d', intdiv($m,60), $m%60 );
 
             // For TODAY: completely hide slots that are in the past
@@ -466,7 +617,15 @@ class Unirad_Quick_Booking_V2 {
             'referral' => sanitize_text_field(    isset( $_POST['pt_referral'] ) ? $_POST['pt_referral'] : 'self' ),
             'gp_name'  => sanitize_text_field(    isset( $_POST['pt_gp_name']  ) ? $_POST['pt_gp_name']  : '' ),
             'gp_phone' => sanitize_text_field(    isset( $_POST['pt_gp_phone'] ) ? $_POST['pt_gp_phone'] : '' ),
+            'address'  => sanitize_text_field(    isset( $_POST['pt_address']  ) ? $_POST['pt_address']  : '' ),
+            'postcode' => sanitize_text_field(    isset( $_POST['pt_postcode'] ) ? $_POST['pt_postcode'] : '' ),
+            'town'     => sanitize_text_field(    isset( $_POST['pt_town']     ) ? $_POST['pt_town']     : '' ),
+            'prev_exam'=> sanitize_text_field(    isset( $_POST['pt_prev_exam'] ) ? $_POST['pt_prev_exam'] : '' ),
         );
+
+        // Yüklenen belgeler (referral letter / önceki tarama) — non-public klasöre
+        // kaydedilir ve klinik e-postasına EK olarak gönderilir (19 Eki 2026).
+        $files = self::collect_uploads();
 
         $sq_keys = array('sq_prev_mri','sq_pregnant','sq_pacemaker','sq_metal_body','sq_items','sq_implants_detail','sq_surgeries','sq_height_unit','sq_height_cm','sq_weight_kg','sq_height_ft','sq_height_in','sq_weight_st','sq_weight_lb');
         $sq = array();
@@ -508,12 +667,16 @@ class Unirad_Quick_Booking_V2 {
         $s .= uqb_row('Date of Birth', $pt['dob']);
         $s .= '<div style="padding:7px 0;border-bottom:1px solid #eee;background:#fffbe6"><span style="display:inline-block;width:160px;font-weight:bold;color:#3a4d68;vertical-align:top">Phone:</span><span style="color:#0d1f3c;font-weight:bold">' . esc_html($pt['phone']) . '</span></div>';
         $s .= uqb_row('Email', $pt['email']);
+        $s .= uqb_row('Address', $pt['address']);
+        $s .= uqb_row('Postcode', trim( $pt['postcode'] . ( ! empty( $pt['town'] ) ? ' (' . $pt['town'] . ')' : '' ) ) );
         $s .= uqb_row('Reason for Scan', $pt['reason']);
         $s .= uqb_row('Referral Type', $ref_label);
         if ( $pt['referral'] === 'gp' ) {
             $s .= uqb_row('GP Name', $pt['gp_name']);
             $s .= uqb_row('GP Phone', $pt['gp_phone']);
         }
+        $s .= uqb_row('Previous Exams', $pt['prev_exam']);
+        $s .= self::uploads_rows( $files, $pt['referral'] );
         $s .= '</div>';
 
         $s .= uqb_section('MRI Safety Questionnaire');
@@ -535,7 +698,7 @@ class Unirad_Quick_Booking_V2 {
         $s .= '</div>';
         $s .= '</div>';
 
-        self::brevo_send( UQB_NOTIFY_EMAIL, 'Unirad Team', 'Callback: ' . $full . ' - ' . $scan, $s );
+        self::brevo_send( UQB_NOTIFY_EMAIL, 'Unirad Team', 'Callback: ' . $full . ' - ' . $scan, $s, $files );
 
         // ── Patient confirmation email ────────────────────────
         if ( $pt['email'] ) {
@@ -551,6 +714,7 @@ class Unirad_Quick_Booking_V2 {
             $p .= '<div style="margin-bottom:6px"><strong>Scan:</strong> ' . esc_html($scan) . '</div>';
             $p .= '<div><strong>Payment:</strong> No payment required at this stage</div>';
             $p .= '</div>';
+            $p .= '<p style="margin:0 0 16px;font-size:13px;color:#92400e"><strong>Your reservation is subject to approval by our clinical team.</strong> Please wait for confirmation of your clinical evaluation before planning your trip or making other arrangements.</p>';
             // Questionnaire link box
             $p .= '<div style="background:#fff8ed;border:1px solid #fcd34d;border-radius:8px;padding:14px 16px;margin-bottom:16px">';
             $p .= '<div style="font-weight:bold;color:#92400e;font-size:13px;margin-bottom:6px">&#x1F4CB; Action Required Before Your Appointment</div>';
@@ -587,7 +751,7 @@ class Unirad_Quick_Booking_V2 {
                     $wpdb->insert( $bt, array(
                         'staff_id'             => UQB_BOOKLY_STAFF_ID,
                         'staff_any'            => 0,
-                        'service_id'           => UQB_BOOKLY_SERVICE_ID,
+                        'service_id'           => null, // NULL → Bookly '[CALLBACK] ...' custom ismini gösterir
                         'start_date'           => $sdt,
                         'end_date'             => $edt,
                         'extras_duration'      => 0,
@@ -636,9 +800,13 @@ class Unirad_Quick_Booking_V2 {
             'phone'    => sanitize_text_field(    isset( $_POST['pt_phone']   ) ? $_POST['pt_phone']   : '' ),
             'email'    => sanitize_email(         isset( $_POST['pt_email']   ) ? $_POST['pt_email']   : '' ),
             'reason'   => sanitize_textarea_field(isset( $_POST['pt_reason']  ) ? $_POST['pt_reason']  : '' ),
-            'referral' => sanitize_text_field(    isset( $_POST['pt_ref']     ) ? $_POST['pt_ref']     : 'self' ),
+            // JS sends pt_referral (getPatient().referral); pt_ref kept as legacy fallback
+            'referral' => sanitize_text_field(    isset( $_POST['pt_referral'] ) ? $_POST['pt_referral'] : ( isset( $_POST['pt_ref'] ) ? $_POST['pt_ref'] : 'self' ) ),
             'gp_name'  => sanitize_text_field(    isset( $_POST['pt_gp_name'] ) ? $_POST['pt_gp_name'] : '' ),
             'gp_phone' => sanitize_text_field(    isset( $_POST['pt_gp_phone']) ? $_POST['pt_gp_phone']: '' ),
+            'address'  => sanitize_text_field(    isset( $_POST['pt_address'] ) ? $_POST['pt_address'] : '' ),
+            'postcode' => sanitize_text_field(    isset( $_POST['pt_postcode']) ? $_POST['pt_postcode']: '' ),
+            'town'     => sanitize_text_field(    isset( $_POST['pt_town']    ) ? $_POST['pt_town']    : '' ),
         );
 
         $sq_keys = array('sq_prev_mri','sq_pregnant','sq_pacemaker','sq_metal_body','sq_items','sq_implants_detail','sq_surgeries','sq_height_unit','sq_height_cm','sq_weight_kg','sq_height_ft','sq_height_in','sq_weight_st','sq_weight_lb');
@@ -668,7 +836,7 @@ class Unirad_Quick_Booking_V2 {
         $catalog = self::catalog();
 
         if ( $mode === 'mri' ) {
-            $special_prices = array('breast'=>420,'cardiac'=>575,'prostate'=>495,'small_bowel'=>495,'abdomen_pelvis'=>455);
+            $special_prices = array('breast'=>420,'cardiac'=>575,'prostate'=>495,'small_bowel'=>495,'abdomen_pelvis'=>590,'abdomen_mri'=>325,'pelvis_gynae'=>325);
             $parts = 0; $labels = array(); $special_total = 0;
             if ( is_array( $items ) ) {
                 foreach ( $items as $item ) {
@@ -714,6 +882,8 @@ class Unirad_Quick_Booking_V2 {
             'uqb_callback'     => 'no',
             'uqb_patient'      => $pt,
             'uqb_safety'       => $sq,
+            // Yüklenen belgeler — non-public klasör, [New Booking] e-postasına EK olarak gider
+            'uqb_files'        => self::collect_uploads(),
         );
 
         WC()->cart->empty_cart();
@@ -722,6 +892,18 @@ class Unirad_Quick_Booking_V2 {
         WC()->session->set( 'uqb_booking_date', $date );
         WC()->session->set( 'uqb_booking_time', $time );
         WC()->session->set( 'uqb_scan_label', $scan_label );
+
+        // Lock the slot for 15 minutes to prevent double-booking race conditions
+        $locked = get_transient( 'uqb_locked_' . $date );
+        if ( ! is_array( $locked ) ) $locked = array();
+        $scan_dur_lock = isset( $scan_dur ) ? $scan_dur : 60;
+        list( $lh, $lm ) = array_pad( explode( ':', $time ), 2, '00' );
+        $lock_start = (int)$lh * 60 + (int)$lm;
+        for ( $lslot = $lock_start; $lslot < $lock_start + $scan_dur_lock; $lslot += 30 ) {
+            $locked[] = sprintf( '%02d:%02d', intdiv( $lslot, 60 ), $lslot % 60 );
+        }
+        set_transient( 'uqb_locked_' . $date, array_unique( $locked ), 15 * MINUTE_IN_SECONDS );
+
         WC()->cart->add_to_cart( $product_id, 1, 0, array(), $cart_meta );
         wp_send_json_success( array( 'redirect' => wc_get_checkout_url() ) );
     }
@@ -769,10 +951,14 @@ class Unirad_Quick_Booking_V2 {
             $e .= '</div>';
             $e .= '<div style="padding:22px">';
             $e .= '<p style="margin:0 0 14px">Dear <strong>' . esc_html($first_name) . '</strong>,</p>';
-            $e .= '<p style="margin:0 0 16px">Thank you for booking your MRI scan with Unirad Imaging. Your appointment is confirmed.</p>';
+            $e .= '<p style="margin:0 0 16px">Thank you for booking your MRI scan with Unirad Imaging. <strong>Your payment has been received.</strong></p>';
+
+            $e .= '<div style="background:#fffbe6;border:1px solid #fcd34d;border-radius:8px;padding:14px 16px;margin-bottom:16px">';
+            $e .= '<p style="margin:0;font-size:13px;color:#92400e"><strong>Your reservation is subject to approval by our clinical team.</strong> Please wait for confirmation of your clinical evaluation before planning your trip or making other arrangements.</p>';
+            $e .= '</div>';
 
             $e .= '<div style="background:#f0fdfa;border:1px solid #a7f3d0;border-radius:8px;padding:16px;margin-bottom:20px">';
-            $e .= '<div style="font-size:14px;font-weight:bold;color:#065f46;margin-bottom:10px">&#x2705; Your Appointment is Confirmed</div>';
+            $e .= '<div style="font-size:14px;font-weight:bold;color:#065f46;margin-bottom:10px">&#x2705; Your Requested Appointment</div>';
             $e .= '<table style="width:100%;border-collapse:collapse">';
             $e .= '<tr><td style="padding:5px 0;color:#555;width:100px"><strong>Date:</strong></td><td style="padding:5px 0;font-weight:bold;color:#0d1f3c">' . esc_html($date_fmt) . '</td></tr>';
             $e .= '<tr><td style="padding:5px 0;color:#555"><strong>Time:</strong></td><td style="padding:5px 0;font-weight:bold;color:#0d1f3c">' . esc_html($time_fmt) . '</td></tr>';
@@ -817,12 +1003,16 @@ class Unirad_Quick_Booking_V2 {
             self::brevo_send( $pt_email, $full, 'Your MRI Appointment Confirmed - ' . $scan_label . ' - ' . $date_fmt, $e );
 
             // ── Clinic notification email ─────────────────────────
-            $pt_phone = $item->get_meta( 'Phone' ) ?: $order->get_billing_phone();
-            $pt_dob   = $item->get_meta( 'Date of Birth' ) ?: '';
-            $pt_ref   = $item->get_meta( 'Referral Type' ) ?: 'Self';
-            $pt_reason= $item->get_meta( 'Reason' ) ?: '';
-            $safety   = $item->get_meta( 'Safety Checklist' ) ?: '';
-            $gp_info  = $item->get_meta( 'GP' ) ?: '';
+            $pt_phone   = $item->get_meta( 'Phone' ) ?: $order->get_billing_phone();
+            $pt_dob     = $item->get_meta( 'Date of Birth' ) ?: '';
+            $pt_ref     = $item->get_meta( 'Referral Type' ) ?: 'Self';
+            $pt_reason  = $item->get_meta( 'Reason' ) ?: '';
+            $safety     = $item->get_meta( 'Safety Checklist' ) ?: '';
+            $gp_info    = $item->get_meta( 'GP' ) ?: '';
+            $pt_address = $item->get_meta( 'Address' ) ?: '';
+            $pt_postcode= $item->get_meta( 'Postcode' ) ?: '';
+            $prev_file  = $item->get_meta( 'Previous Scan/Report' ) ?: '';
+            $gp_file    = $item->get_meta( 'GP Referral Letter' ) ?: '';
             $order_total = wc_price( $order->get_total() );
 
             $cl  = '<div style="font-family:Arial,sans-serif;font-size:13px;color:#0d1f3c;max-width:620px">';
@@ -841,13 +1031,31 @@ class Unirad_Quick_Booking_V2 {
             $cl .= '<tr><td style="padding:6px 10px;color:#64748b">Date of Birth</td><td style="padding:6px 10px">' . esc_html($pt_dob) . '</td></tr>';
             $cl .= '<tr style="background:#f8fafc"><td style="padding:6px 10px;color:#64748b">Phone</td><td style="padding:6px 10px;font-weight:bold"><a href="tel:' . esc_attr($pt_phone) . '" style="color:#0d1f3c">' . esc_html($pt_phone) . '</a></td></tr>';
             $cl .= '<tr><td style="padding:6px 10px;color:#64748b">Email</td><td style="padding:6px 10px"><a href="mailto:' . esc_attr($pt_email) . '" style="color:#00a896">' . esc_html($pt_email) . '</a></td></tr>';
+            if ( $pt_address ) $cl .= '<tr style="background:#f8fafc"><td style="padding:6px 10px;color:#64748b">Address</td><td style="padding:6px 10px">' . esc_html($pt_address) . '</td></tr>';
+            if ( $pt_postcode ) $cl .= '<tr><td style="padding:6px 10px;color:#64748b">Postcode</td><td style="padding:6px 10px">' . esc_html($pt_postcode) . '</td></tr>';
             $cl .= '<tr style="background:#f8fafc"><td style="padding:6px 10px;color:#64748b">Referral</td><td style="padding:6px 10px">' . esc_html($pt_ref) . '</td></tr>';
             if ( $gp_info ) $cl .= '<tr><td style="padding:6px 10px;color:#64748b">GP</td><td style="padding:6px 10px">' . esc_html($gp_info) . '</td></tr>';
             $cl .= '<tr' . ($gp_info?'':' style="background:#f8fafc"') . '><td style="padding:6px 10px;color:#64748b">Reason</td><td style="padding:6px 10px">' . esc_html($pt_reason) . '</td></tr>';
+            if ( $prev_file ) $cl .= '<tr style="background:#f8fafc"><td style="padding:6px 10px;color:#64748b">Previous Scan/Report</td><td style="padding:6px 10px"><a href="' . esc_url($prev_file) . '" style="color:#00a896">View file</a></td></tr>';
+            if ( $gp_file )   $cl .= '<tr><td style="padding:6px 10px;color:#64748b">GP Referral Letter</td><td style="padding:6px 10px"><a href="' . esc_url($gp_file) . '" style="color:#00a896">View file</a></td></tr>';
+            $uqb_files = $item->get_meta( '_uqb_files' ) ?: $order->get_meta( '_uqb_files' );
+            $uqb_files = is_array( $uqb_files ) ? $uqb_files : array();
+            foreach ( $uqb_files as $uf ) {
+                $cl .= '<tr><td style="padding:6px 10px;color:#64748b">' . esc_html( $uf['label'] ) . '</td><td style="padding:6px 10px">&#x1F4CE; ' . esc_html( $uf['name'] ) . ' (attached)</td></tr>';
+            }
             $cl .= '</table>';
             if ( $safety ) {
                 $cl .= '<div style="font-weight:bold;font-size:12px;color:#0d1f3c;margin-bottom:6px;border-bottom:2px solid #00a896;padding-bottom:4px">SAFETY CHECKLIST</div>';
-                $cl .= '<div style="font-size:12px;color:#555;margin-bottom:16px">' . esc_html($safety) . '</div>';
+                $cl .= '<table style="width:100%;border-collapse:collapse;margin-bottom:16px">';
+                $safety_lines = array_map( 'trim', explode( '|', $safety ) );
+                foreach ( $safety_lines as $i => $line ) {
+                    if ( $line === '' ) continue;
+                    $parts = explode( ':', $line, 2 );
+                    $s_label = trim( $parts[0] );
+                    $s_value = isset( $parts[1] ) ? trim( $parts[1] ) : '';
+                    $cl .= '<tr' . ( $i % 2 === 0 ? ' style="background:#f8fafc"' : '' ) . '><td style="padding:6px 10px;color:#64748b;width:150px">' . esc_html($s_label) . '</td><td style="padding:6px 10px">' . esc_html($s_value) . '</td></tr>';
+                }
+                $cl .= '</table>';
             }
             $cl .= '</div>';
             $cl .= '<div style="background:#0d1f3c;padding:10px 20px;font-size:11px;color:#64748b;text-align:center">Unirad Private MRI Glasgow | booking@unirad.co.uk | 0141 846 9116</div>';
@@ -861,7 +1069,7 @@ class Unirad_Quick_Booking_V2 {
                 self::mark_lead_converted( $pt_email, $scan_label );
             }
 
-            self::brevo_send( UQB_NOTIFY_EMAIL, 'Unirad Team', '[New Booking] ' . $full . ' - ' . $scan_label . ' - ' . $date_fmt . ' ' . $time_fmt, $cl );
+            self::brevo_send( UQB_NOTIFY_EMAIL, 'Unirad Team', '[New Booking] ' . $full . ' - ' . $scan_label . ' - ' . $date_fmt . ' ' . $time_fmt, $cl, $uqb_files );
 
             break;
         }
@@ -1035,6 +1243,9 @@ class Unirad_Quick_Booking_V2 {
                 $order->update_meta_data( '_uqb_booking_time', $t );
                 $order->update_meta_data( '_uqb_scan_label',   $s );
             }
+            if ( ! empty( $cart_item['uqb_files'] ) ) {
+                $order->update_meta_data( '_uqb_files', $cart_item['uqb_files'] );
+            }
             break;
         }
     }
@@ -1044,10 +1255,28 @@ class Unirad_Quick_Booking_V2 {
         self::write_to_bookly( $order_id );
     }
 
-    public static function write_to_bookly( $order_id ) {
+    // Sipariş iptal/iade/başarısız → Bookly'deki randevuyu sil (hayalet kayıt önleme)
+    // Ödeme retry ile tamamlanırsa write_to_bookly randevuyu yeniden oluşturur.
+    public static function remove_from_bookly( $order_id ) {
         global $wpdb;
         $order = wc_get_order( $order_id );
         if ( ! $order ) return;
+        $appt_id = (int) $order->get_meta( '_uqb_bookly_appt_id' );
+        if ( ! $appt_id ) return;
+        $bt = $wpdb->prefix . 'bookly_appointments';
+        if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$bt}'" ) ) return;
+
+        $wpdb->delete( $wpdb->prefix . 'bookly_customer_appointments', array( 'appointment_id' => $appt_id ), array( '%d' ) );
+        $wpdb->delete( $bt, array( 'id' => $appt_id ), array( '%d' ) );
+        $order->delete_meta_data( '_uqb_bookly_appt_id' );
+        $order->add_order_note( 'Bookly appointment #' . $appt_id . ' removed (order ' . $order->get_status() . ').' );
+        $order->save();
+    }
+
+    public static function write_to_bookly( $order_id ) {
+        global $wpdb;
+        $order = wc_get_order( $order_id );
+        if ( ! $order ) { error_log( "UQB DEBUG order#{$order_id}: order object not found, aborting" ); return; }
         $bt = $wpdb->prefix . 'bookly_appointments';
         if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$bt}'" ) ) return;
 
@@ -1056,10 +1285,14 @@ class Unirad_Quick_Booking_V2 {
         $sess_time  = WC()->session ? WC()->session->get( 'uqb_booking_time' ) : '';
         $sess_scan  = WC()->session ? WC()->session->get( 'uqb_scan_label' )   : '';
 
+        error_log( "UQB DEBUG order#{$order_id}: write_to_bookly called (hook context), current_filter=" . current_action() . ", sess_date={$sess_date}, sess_time={$sess_time}, sess_scan={$sess_scan}" );
+
         // Also read from order meta as fallback
         foreach ( $order->get_items() as $item ) {
             $appt = $item->get_meta( 'Appointment' );
             $scan = $item->get_meta( 'Scan Details' );
+
+            error_log( "UQB DEBUG order#{$order_id} item#{$item->get_id()}: item.Appointment=[{$appt}] item.'Scan Details'=[{$scan}]" );
 
             // Use order-level meta if item meta not populated yet
             if ( ! $appt ) {
@@ -1067,12 +1300,26 @@ class Unirad_Quick_Booking_V2 {
                 $ord_time = $order->get_meta( '_uqb_booking_time' );
                 if ( $ord_date && $ord_time ) $appt = $ord_date . ' ' . $ord_time;
                 elseif ( $sess_date && $sess_time ) $appt = $sess_date . ' ' . $sess_time;
+                error_log( "UQB DEBUG order#{$order_id}: item.Appointment empty, fallback -> order_date={$ord_date} order_time={$ord_time} resolved_appt=[{$appt}]" );
             }
             if ( ! $scan ) {
                 $scan = $order->get_meta( '_uqb_scan_label' ) ?: $sess_scan;
+                error_log( "UQB DEBUG order#{$order_id}: item.'Scan Details' empty, fallback to order/_uqb_scan_label or session -> resolved_scan=[{$scan}]" );
             }
 
-            if ( ! $appt || ! $scan ) continue;
+            if ( ! $appt ) { error_log( "UQB DEBUG order#{$order_id}: appt still empty after all fallbacks — SKIPPING item, no Bookly write will happen" ); continue; }
+            // Tarama adı hiçbir kaynakta yoksa randevuyu atlamak yerine sipariş
+            // numarasıyla yaz — takvimde görünsün, slot bloklu kalsın
+            if ( ! $scan ) {
+                $scan = 'MRI Scan (Order #' . $order_id . ')';
+                error_log( "UQB DEBUG order#{$order_id}: scan still empty after all fallbacks — using placeholder [{$scan}]" );
+            }
+
+            // Klostrofobik hasta takvimde bir bakışta görünsün (hasta bunu görmez, sadece Bookly)
+            $safety_meta = $item->get_meta( 'Safety Checklist' );
+            if ( $safety_meta && stripos( $safety_meta, 'Claustrophobia: Yes' ) !== false && stripos( $scan, 'CLAUSTRO' ) === false ) {
+                $scan .= ' ⚠CLAUSTRO';
+            }
             $p = explode( ' ', trim( $appt ) );
             if ( count( $p ) < 2 ) continue;
             // Bookly uses WordPress timezone (London) — write local time directly
@@ -1084,21 +1331,40 @@ class Unirad_Quick_Booking_V2 {
             $duration_mins = uqb_calc_duration( $scan );
             $edt = date( 'Y-m-d H:i:s', strtotime( $sdt ) + ( (int)$duration_mins * 60 ) );
 
-            // Look up the correct Bookly service_id for this WC product
-            $wc_product_id  = 0;
-            foreach ( $order->get_items() as $_item ) {
-                $wc_product_id = (int) $_item->get_product_id();
-                break;
-            }
-            $use_service_id = uqb_get_bookly_service_id( $wc_product_id );
+            // NOT: service_id her zaman NULL yazılır. Bookly, custom_service_name'i
+            // SADECE service_id NULL ("custom service") olduğunda takvimde gösterir;
+            // bir servise bağlarsak servisin başlığı (örn. jenerik "MRI scan") basılır
+            // ve custom isim tamamen yok sayılır. (Adelle Davis #1091 vakasının kök nedeni.)
 
             $ex  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$bt} WHERE start_date=%s AND staff_id=%d LIMIT 1", $sdt, UQB_BOOKLY_STAFF_ID ) );
-            if ( $ex ) continue;
+            if ( $ex ) {
+                // Aynı slota başka kaynaktan (manuel/ScanBook/Bookly'nin kendi native
+                // WooCommerce entegrasyonu) kayıt düşmüş olabilir. Daha önce burada
+                // "isim zaten dolu mu" diye kontrol edip sadece boşsa/generic ise
+                // yazıyorduk — bu güvenilmez çıktı (Bookly'nin kendi yazdığı değer
+                // beklenmedik biçimlerde olabiliyor, string eşleşmesi kaçırıyordu).
+                // ARTIK KOŞULSUZ: Bu order'daki gerçek veri (WooCommerce siparişi)
+                // HER ZAMAN otoriter kaynaktır — orada ne yazılı olursa olsun üzerine yazıyoruz.
+                $ex_row = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT custom_service_name, custom_service_price FROM {$bt} WHERE id = %d", $ex
+                ), ARRAY_A );
+                error_log( "UQB DEBUG order#{$order_id}: existing Bookly row #{$ex} found at slot {$sdt} — current custom_service_name=[" . ( $ex_row['custom_service_name'] ?? 'NULL' ) . "] FORCING our scan=[{$scan}]" );
+                $ex_upd = array( 'custom_service_name' => $scan, 'service_id' => null );
+                if ( (float) $order->get_total() > 0 ) $ex_upd['custom_service_price'] = $order->get_total();
+                $wpdb->update( $bt, $ex_upd, array( 'id' => $ex ) );
+                error_log( "UQB DEBUG order#{$order_id}: FORCE-updated existing row #{$ex} with " . wp_json_encode( $ex_upd ) );
+                // ID bağlantısını kalıcı kaydet — randevu sonradan takvimde
+                // taşınsa bile (drag-drop reschedule) bu link tarih/saate bağlı değildir
+                $order->update_meta_data( '_uqb_bookly_appt_id', $ex );
+                $order->save();
+                continue;
+            }
+            error_log( "UQB DEBUG order#{$order_id}: no existing row at slot {$sdt} — inserting new appointment with custom_service_name=[{$scan}]" );
             $now = current_time( 'mysql' );
             $result = $wpdb->insert( $bt, array(
                 'staff_id'             => UQB_BOOKLY_STAFF_ID,
                 'staff_any'            => 0,
-                'service_id'           => $use_service_id,
+                'service_id'           => null,
                 'start_date'           => $sdt,
                 'end_date'             => $edt,
                 'extras_duration'      => 0,
@@ -1121,6 +1387,9 @@ class Unirad_Quick_Booking_V2 {
                     array( '%s' ),
                     array( '%d' )
                 );
+                // Randevu ID'sini siparişe kaydet — iptal/iade olursa Bookly'den silinebilsin
+                $order->update_meta_data( '_uqb_bookly_appt_id', $appt_id );
+                $order->save();
                 // Clear session booking data after successful write
                 if ( WC()->session ) {
                     WC()->session->set( 'uqb_booking_date', '' );
@@ -1199,14 +1468,20 @@ class Unirad_Quick_Booking_V2 {
             $item->add_meta_data( 'Date of Birth', $pt['dob'] );
             $item->add_meta_data( 'Phone',         $pt['phone'] );
             $item->add_meta_data( 'Email',         $pt['email'] );
-            $item->add_meta_data( 'Referral Type', ucfirst( $pt['referral'] ) );
+            if ( ! empty( $pt['address'] ) )  $item->add_meta_data( 'Address', $pt['address'] );
+            if ( ! empty( $pt['postcode'] ) ) $item->add_meta_data( 'Postcode', trim( $pt['postcode'] . ( ! empty( $pt['town'] ) ? ' (' . $pt['town'] . ')' : '' ) ) );
+            $item->add_meta_data( 'Referral Type', $pt['referral'] === 'gp' ? 'GP / Clinician' : 'Self' );
             if ( ! empty( $pt['gp_name'] ) ) $item->add_meta_data( 'GP', $pt['gp_name'] . ( $pt['gp_phone'] ? ' / ' . $pt['gp_phone'] : '' ) );
             $item->add_meta_data( 'Reason', $pt['reason'] );
+        }
+        if ( ! empty( $values['uqb_files'] ) ) {
+            $item->add_meta_data( '_uqb_files', $values['uqb_files'], true );
+            $item->add_meta_data( 'Uploaded Files', implode( ', ', wp_list_pluck( $values['uqb_files'], 'name' ) ) );
         }
         $sq = isset( $values['uqb_safety'] ) ? $values['uqb_safety'] : array();
         if ( ! empty( $sq ) ) {
             $lines = array();
-            $map = array( 'sq_prev_mri' => 'Previous MRI', 'sq_pregnant' => 'Pregnant', 'sq_pacemaker' => 'Pacemaker/Implants', 'sq_implants_detail' => 'Implant Detail', 'sq_metal_body' => 'Metal in Body', 'sq_items' => 'Items Worn', 'sq_surgeries' => 'Surgeries' );
+            $map = array( 'sq_prev_mri' => 'Previous MRI', 'sq_pregnant' => 'Pregnant', 'sq_pacemaker' => 'Pacemaker/Implants', 'sq_implants_detail' => 'Implant Detail', 'sq_metal_body' => 'Metal in Body', 'sq_claustro' => 'Claustrophobia', 'sq_items' => 'Items Worn', 'sq_surgeries' => 'Surgeries' );
             foreach ( $map as $k => $lbl ) { if ( ! empty( $sq[$k] ) ) $lines[] = $lbl . ': ' . $sq[$k]; }
             $hu = isset( $sq['sq_height_unit'] ) ? $sq['sq_height_unit'] : 'metric';
             if ( $hu === 'metric' && ( ! empty( $sq['sq_height_cm'] ) || ! empty( $sq['sq_weight_kg'] ) ) ) {
@@ -1227,13 +1502,13 @@ class Unirad_Quick_Booking_V2 {
         return array(
             // WooCommerce product IDs for MRI bundles
             'bundles'       => array( 1 => 5253, 2 => 5141, 3 => 5234, 4 => 5235 ),
-            'bundle_prices' => array( 1 => 290,  2 => 455,  3 => 600,  4 => 700  ),
+            'bundle_prices' => array( 1 => 290,  2 => 495,  3 => 695,  4 => 895  ),
             // Deposit product (WooCommerce ID 181 = Pay £50 Deposit)
             'deposit_id'    => 181,
             'deposit_price' => 50,
             'mri_items' => array(
-                array( 'id' => 'abdomen_pelvis', 'name' => 'Abdomen & Pelvis Scan',     'laterality' => false, 'cb' => true,  'price' => 455  ),
-                array( 'id' => 'abdomen_mri',    'name' => 'Abdomen MRI Scan',          'laterality' => false, 'cb' => true,  'price' => 290  ),
+                array( 'id' => 'abdomen_pelvis', 'name' => 'Abdomen & Pelvis Scan',     'laterality' => false, 'cb' => true,  'price' => 590  ),
+                array( 'id' => 'abdomen_mri',    'name' => 'Abdomen MRI Scan',          'laterality' => false, 'cb' => true,  'price' => 325  ),
                 array( 'id' => 'achilles',       'name' => 'Achilles Tendon MRI',       'laterality' => true,  'cb' => false, 'price' => 290  ),
                 array( 'id' => 'angiography',    'name' => 'Angiography - Brain',       'laterality' => false, 'cb' => true,  'price' => 290  ),
                 array( 'id' => 'ankle',          'name' => 'Ankle MRI Scan',            'laterality' => true,  'cb' => false, 'price' => 290  ),
@@ -1262,7 +1537,7 @@ class Unirad_Quick_Booking_V2 {
                 array( 'id' => 'orbit',          'name' => 'Orbit MRI Scan',            'laterality' => false, 'cb' => true,  'price' => 290  ),
                 array( 'id' => 'pancreas',       'name' => 'Pancreas MRI Scan',         'laterality' => false, 'cb' => true,  'price' => 290  ),
                 array( 'id' => 'pelvis_sports',  'name' => 'Pelvis (Sports Groin) MRI', 'laterality' => false, 'cb' => true,  'price' => 380  ),
-                array( 'id' => 'pelvis_gynae',   'name' => 'Pelvis Gynae MRI',          'laterality' => false, 'cb' => true,  'price' => 290  ),
+                array( 'id' => 'pelvis_gynae',   'name' => 'Pelvis Gynae MRI',          'laterality' => false, 'cb' => true,  'price' => 325  ),
                 array( 'id' => 'pelvis_scan',    'name' => 'Pelvis MRI Scan',           'laterality' => false, 'cb' => true,  'price' => 290  ),
                 array( 'id' => 'perianal',       'name' => 'Perianal Fistula MRI',      'laterality' => false, 'cb' => true,  'price' => 290  ),
                 array( 'id' => 'pituitary',      'name' => 'Pituitary MRI Scan',        'laterality' => false, 'cb' => true,  'price' => 290  ),
@@ -1283,15 +1558,62 @@ class Unirad_Quick_Booking_V2 {
                 array( 'id' => 'wrist',          'name' => 'Wrist MRI Scan',            'laterality' => true,  'cb' => false, 'price' => 290  ),
             ),
             'full_body' => array(
-                array( 'id' => '1332', 'name' => 'Full Body MRI Silver Package – Brain, Abdomen & Pelvis',                      'price' => 590,  'cb' => true ),
-                array( 'id' => '1464', 'name' => 'Full Body MRI Gold Package – Brain, Spine, Abdomen & Pelvis',                       'price' => 1210, 'cb' => true ),
-                array( 'id' => '1465', 'name' => 'Full Body MRI Platinum Package – Heart, Brain, Spine, Abdomen & Pelvis',             'price' => 1660, 'cb' => true ),
+                array( 'id' => '1332', 'name' => 'Full Body MRI Silver Package – Brain, Abdomen & Pelvis',                      'price' => 640,  'cb' => true ),
+                array( 'id' => '1464', 'name' => 'Full Body MRI Gold Package – Brain, Spine, Abdomen & Pelvis',                       'price' => 1260, 'cb' => true ),
+                // 20 Eyl 2026: Platinum paketi gecici olarak kaldirildi (kardiyak cekim yapamiyoruz, hastalar geri cevriliyordu) - Gulistan/Ayla Hanim talebi
+                // array( 'id' => '1465', 'name' => 'Full Body MRI Platinum Package - Heart, Brain, Spine, Abdomen & Pelvis',             'price' => 1660, 'cb' => true ),
             ),
             'gp' => array(
                 array( 'id' => '6388', 'name' => 'GP Consultation (In-Clinic)', 'price' => 99,  'cb' => true ),
                 array( 'id' => '6387', 'name' => 'GP Consultation (Online)',    'price' => 45,  'cb' => true ),
             ),
         );
+    }
+
+    // ── Bookly Staff→Schedule'dan görünen saat etiketini canlı oluşturur ──────
+    // (ardışık aynı saatli günleri gruplar, ör. "Mon–Fri · 09:00–20:00 • Sat · 10:00–16:00")
+    public static function build_hours_note() {
+        global $wpdb;
+        $staff_id = (int) UQB_BOOKLY_STAFF_ID;
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT day_index, start_time, end_time FROM {$wpdb->prefix}bookly_staff_schedule_items
+             WHERE staff_id = %d ORDER BY day_index", $staff_id
+        ) );
+        if ( ! $rows ) return 'See available times below';
+
+        $names = array( 1=>'Sun', 2=>'Mon', 3=>'Tue', 4=>'Wed', 5=>'Thu', 6=>'Fri', 7=>'Sat' );
+        // Pazartesi'den başlayan sırayla (2..7 sonra 1) günlük saat metnini derle
+        $order = array( 2, 3, 4, 5, 6, 7, 1 );
+        $by_day = array();
+        foreach ( $rows as $r ) {
+            $by_day[ (int) $r->day_index ] = ( $r->start_time && $r->end_time )
+                ? substr( $r->start_time, 0, 5 ) . '&ndash;' . substr( $r->end_time, 0, 5 )
+                : null; // kapalı
+        }
+
+        // Aynı saate sahip ardışık günleri grupla
+        $groups = array(); // array of [ 'label' => 'Mon–Fri', 'hours' => '09:00–20:00' ]
+        $cur_hours = null; $cur_days = array();
+        foreach ( $order as $d ) {
+            $h = isset( $by_day[$d] ) ? $by_day[$d] : null;
+            if ( $h === $cur_hours ) {
+                $cur_days[] = $d;
+            } else {
+                if ( $cur_hours !== null && $cur_days ) $groups[] = array( $cur_days, $cur_hours );
+                $cur_hours = $h; $cur_days = array( $d );
+            }
+        }
+        if ( $cur_hours !== null && $cur_days ) $groups[] = array( $cur_days, $cur_hours );
+
+        $parts = array();
+        foreach ( $groups as $g ) {
+            list( $days, $hours ) = $g;
+            $label = ( count( $days ) > 1 )
+                ? $names[ $days[0] ] . '&ndash;' . $names[ end( $days ) ]
+                : $names[ $days[0] ];
+            $parts[] = $label . ' &middot; ' . $hours;
+        }
+        return $parts ? implode( ' &nbsp;&bull;&nbsp; ', $parts ) : 'See available times below';
     }
 
     // ── Shortcode ────────────────────────────────────────────
@@ -1301,6 +1623,10 @@ class Unirad_Quick_Booking_V2 {
         $nonce    = wp_create_nonce( 'uqb2_nonce' );
         $today    = date( 'Y-m-d' );
         $cat_json = wp_json_encode( $catalog );
+        // Görünen saat etiketi artık Bookly'nin kendi Staff → Schedule'ından canlı
+        // oluşturuluyor (ajax_slots() ile aynı kaynak) — Bookly'de değiştirdiğinizde
+        // bu etiket de otomatik güncellenir, elle senkron gerekmez.
+        $hours_note = self::build_hours_note();
 
         $html = '
 <div id="uqb" data-nonce="' . esc_attr($nonce) . '" data-ajax="' . esc_url($ajax_url) . '">
@@ -1364,6 +1690,11 @@ class Unirad_Quick_Booking_V2 {
       </div>
       <div class="uqb-f"><label>Email *</label><input type="email" id="pt_email" placeholder="you@example.com"></div>
       <div class="uqb-f"><label>Address *</label><input type="text" id="pt_address" placeholder="First line of address"></div>
+      <div class="uqb-row2">
+        <div class="uqb-f"><label>Postcode *</label><input type="text" id="pt_postcode" placeholder="e.g. G51 3HZ" style="text-transform:uppercase" autocomplete="postal-code"></div>
+        <div class="uqb-f"><label>Town / City</label><input type="text" id="pt_town" placeholder="Auto-filled from postcode" readonly style="background:#f7f9fc"></div>
+      </div>
+      <div id="uqbPostcodeMsg" style="font-size:12px;margin:-8px 0 10px;display:none"></div>
       <div class="uqb-f"><label>Reason for Scan *</label><textarea id="pt_reason" rows="3" placeholder="Describe your symptoms and reason for this scan"></textarea></div>
       <div class="uqb-f">
         <label>Have you got any previous related exams?</label>
@@ -1427,11 +1758,11 @@ class Unirad_Quick_Booking_V2 {
       </div>
       <div class="uqb-sq-row">
         <span class="uqb-sq-q">Are you, or could you be, pregnant?</span>
-        <div class="uqb-yn"><label><input type="radio" name="sq_pregnant" value="No" checked> No</label><label><input type="radio" name="sq_pregnant" value="Yes"> Yes</label></div>
+        <div class="uqb-yn"><label><input type="radio" name="sq_pregnant" value="No"> No</label><label><input type="radio" name="sq_pregnant" value="Yes"> Yes</label></div>
       </div>
       <div class="uqb-sq-row">
         <span class="uqb-sq-q">Do you have or have you ever had a cardiac pacemaker, defibrillator, cerebral aneurysm clips, cochlear implant, artificial heart valve, or stents/clips/coils?</span>
-        <div class="uqb-yn"><label><input type="radio" name="sq_pacemaker" value="No" checked> No</label><label><input type="radio" name="sq_pacemaker" value="Yes"> Yes</label></div>
+        <div class="uqb-yn"><label><input type="radio" name="sq_pacemaker" value="No"> No</label><label><input type="radio" name="sq_pacemaker" value="Yes"> Yes</label></div>
       </div>
       <div id="uqb-impl-row" style="display:none;background:#fff8ed;border:1px solid #f0c040;border-radius:8px;padding:10px;margin-bottom:6px">
         <label style="font-size:11px;font-weight:700;color:#7a5500;display:block;margin-bottom:4px;text-transform:uppercase">Please specify:</label>
@@ -1439,7 +1770,7 @@ class Unirad_Quick_Booking_V2 {
       </div>
       <div class="uqb-sq-row">
         <span class="uqb-sq-q">Do you have any metal in your body from surgery or injury?</span>
-        <div class="uqb-yn"><label><input type="radio" name="sq_metal_body" value="No" checked> No</label><label><input type="radio" name="sq_metal_body" value="Yes"> Yes</label></div>
+        <div class="uqb-yn"><label><input type="radio" name="sq_metal_body" value="No"> No</label><label><input type="radio" name="sq_metal_body" value="Yes"> Yes</label></div>
       </div>
       <div class="uqb-sq-row uqb-sq-row--highlight">
         <span class="uqb-sq-q">Do you experience claustrophobia or significant anxiety in enclosed spaces?</span>
@@ -1450,15 +1781,9 @@ class Unirad_Quick_Booking_V2 {
         </div>
       </div>
       <div id="uqb-claustro-block" style="display:none">
-        <div class="uqb-claustro-warn">
-          <div class="uqb-claustro-title">&#9888; Clinical Review Required</div>
-          <p class="uqb-claustro-msg">Thank you for letting us know. One of our clinical team will call you within 1 working hour to discuss your scan and ensure we can support you. Please confirm your phone number below — no payment is taken at this stage.</p>
-          <div class="uqb-f">
-            <label>Best phone number to reach you *</label>
-            <input type="tel" id="claustro_phone" placeholder="+44 7xxx xxxxxx">
-          </div>
-          <button type="button" id="uqbClaustroSubmit" class="uqb-btn uqb-btn--red">&#128222; Request a Clinical Call &rarr;</button>
-          <p class="uqb-claustro-note">Your scan enquiry will be held pending our call. No payment is taken at this stage.</p>
+        <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:14px 16px;margin:8px 0 12px">
+          <div style="font-weight:700;color:#065f46;margin-bottom:6px;font-size:13px">&#128154; Thank you for letting us know</div>
+          <p style="font-size:13px;color:#065f46;margin:0;line-height:1.5">Our team will be aware of this before your visit and will take extra care to make you comfortable — including talking you through the scan, music, and regular check-ins. You can continue with your booking as normal.</p>
         </div>
       </div>
       <div style="font-size:11px;font-weight:700;color:#3a4d68;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 6px">Are you wearing or do you have any of these?</div>
@@ -1522,7 +1847,7 @@ class Unirad_Quick_Booking_V2 {
   <div class="uqb-two-col">
     <div class="uqb-col">
       <h3 class="uqb-col-title">Select Date</h3>
-      <p class="uqb-note">Mon / Wed / Fri &middot; 10:00&ndash;19:00 &nbsp;&bull;&nbsp; Tue / Thu &middot; 10:00&ndash;16:00 &nbsp;&bull;&nbsp; Sat &middot; 10:00&ndash;15:00</p>
+      <p class="uqb-note">' . $hours_note . '</p>
       <input type="date" id="uqbDate" min="' . esc_attr($today) . '" value="' . esc_attr($today) . '" class="uqb-date-in">
     </div>
     <div class="uqb-col">
@@ -1558,6 +1883,7 @@ class Unirad_Quick_Booking_V2 {
     <button class="uqb-btn" id="uqbConfirm" disabled>Confirm &amp; Pay &#8594;</button>
     <span class="uqb-secure">&#128274; Apple Pay &amp; Google Pay accepted</span>
   </div>
+  <p style="font-size:11px;color:#8a9bb5;text-align:center;margin:8px 0 0">Your appointment is subject to approval by our clinical team.</p>
 </div>
 
 <!-- STEP 4: Callback success -->
@@ -1714,7 +2040,7 @@ function fmt(n){return"\u00a3"+parseFloat(n||0).toFixed(2);}
 function keys(){return Object.keys(S.picks);}
 function total(){
   if(S.mode!=="mri"){var t=0;keys().forEach(function(k){t+=S.picks[k].price||0;});return t;}
-  var SPECIAL={breast:420,cardiac:575,prostate:495,small_bowel:495,abdomen_pelvis:455,pelvis_sports:380};
+  var SPECIAL={breast:420,cardiac:575,prostate:495,small_bowel:495,abdomen_pelvis:590,pelvis_sports:380,abdomen_mri:325,pelvis_gynae:325};
   var sp=0,bp=0;
   keys().forEach(function(k){
     var p=S.picks[k];
@@ -1824,7 +2150,8 @@ function loadSlots(date){
   fetch(AJAX,{method:"POST",body:new URLSearchParams({action:"unirad_qb2_slots",nonce:NONCE,date:date,duration:calcDuration()})})
   .then(function(r){return r.json();})
   .then(function(data){
-    if(!data.success||!data.data.slots.length){cont.innerHTML="<p class=\"uqb-note\">No availability on this day. Please try another date.</p>";return;}
+    if(!data||typeof data!=="object"||!data.success){cont.innerHTML="<p class=\"uqb-note\" style=\"color:red\">Sorry, something went wrong loading times. Please refresh the page or call us to book.</p>";return;}
+    if(!data.data.slots.length){cont.innerHTML="<p class=\"uqb-note\">No availability on this day. Please try another date.</p>";return;}
     cont.innerHTML="";
     data.data.slots.forEach(function(slot){
       var d=document.createElement("div");
@@ -1865,33 +2192,40 @@ function updateConfirmBtn(){
   else{btn.disabled=!S.time;btn.textContent="Confirm & Pay \u2192";}
 }
 function checkClaustro(){
+  // Klostrofobi "Yes" ödemeyi BLOKLAMAZ — sadece destekleyici not gösterilir,
+  // cevap Safety Checklist ile ekibe iletilir (Gülistan Hanım talebi, Tem 2026)
   var c=ROOT.querySelector("[name=\"sq_claustro\"]:checked");
   var isYes=c&&c.value==="Yes";
   var block=q("#uqb-claustro-block");
-  var nextBtn=q("#uqbNext2");
   if(block)block.style.display=isYes?"block":"none";
-  if(nextBtn)nextBtn.style.display=isYes?"none":"";
-  if(isYes){
-    var ph=q("#claustro_phone"),ptPh=q("#pt_phone");
-    if(ph&&ptPh&&ptPh.value&&!ph.value)ph.value=ptPh.value;
-  }
 }
 function validateStep2(){
-  var claustro=ROOT.querySelector("[name=\"sq_claustro\"]:checked");
-  if(claustro&&claustro.value==="Yes"){alert("Please use the clinical call request form below — our team will contact you to arrange your scan.");return false;}
-  var req=["pt_first","pt_last","pt_dob","pt_phone","pt_email","pt_reason","sq_surgeries"];
+  var req=["pt_first","pt_last","pt_dob","pt_phone","pt_email","pt_address","pt_postcode","pt_reason","sq_surgeries"];
   for(var i=0;i<req.length;i++){
     var el=q("#"+req[i]);
     if(!el||!el.value.trim()){if(el){el.focus();el.style.borderColor="#ef4444";}alert("Please complete all required fields.");return false;}
   }
   var ref=ROOT.querySelector("[name=\"pt_ref\"]:checked");
   if(ref&&ref.value==="gp"){var gpn=q("#gp_name");if(!gpn||!gpn.value.trim()){if(gpn)gpn.focus();alert("Please enter your GP / Doctor name.");return false;}}
+  // Kritik güvenlik soruları artık "No" ön seçili DEĞİL — hasta aktif olarak
+  // cevaplamak zorunda (14 Eyl 2026 fix: bir hasta stent/kalp ameliyatı geçmişini
+  // hiç dokunmadan "No" olarak geçirip online ödeme yapabilmişti).
+  var mustAnswer=["sq_pregnant","sq_pacemaker","sq_metal_body"];
+  for(var j=0;j<mustAnswer.length;j++){
+    if(!ROOT.querySelector("[name=\""+mustAnswer[j]+"\"]:checked")){
+      alert("Please answer all safety questions before continuing.");
+      var grp=ROOT.querySelector("[name=\""+mustAnswer[j]+"\"]");
+      if(grp)grp.scrollIntoView({block:"center"});
+      return false;
+    }
+  }
+  checkSafetyCallback(); // son duruma göre callback kapısını kesin uygula
   if(!q("#uqbConsent").checked){alert("Please accept the patient declaration to continue.");return false;}
   return true;
 }
 function getPatient(){
   var ref=ROOT.querySelector("[name=\"pt_ref\"]:checked");
-  return{title:q("#pt_title").value,first:q("#pt_first").value.trim(),last:q("#pt_last").value.trim(),dob:q("#pt_dob").value,phone:q("#pt_phone").value.trim(),email:q("#pt_email").value.trim(),address:(q("#pt_address")?q("#pt_address").value.trim():""),reason:q("#pt_reason").value.trim(),prev_exam:(function(){var r=ROOT.querySelector("[name=\"pt_prev_exam\"]:checked");return r?r.value:"No";})(),referral:ref?ref.value:"self",gp_name:(q("#gp_name")?q("#gp_name").value.trim():""),gp_phone:(q("#gp_phone")?q("#gp_phone").value.trim():"")};
+  return{title:q("#pt_title").value,first:q("#pt_first").value.trim(),last:q("#pt_last").value.trim(),dob:q("#pt_dob").value,phone:q("#pt_phone").value.trim(),email:q("#pt_email").value.trim(),address:(q("#pt_address")?q("#pt_address").value.trim():""),postcode:(q("#pt_postcode")?q("#pt_postcode").value.trim().toUpperCase():""),town:(q("#pt_town")?q("#pt_town").value.trim():""),reason:q("#pt_reason").value.trim(),prev_exam:(function(){var r=ROOT.querySelector("[name=\"pt_prev_exam\"]:checked");return r?r.value:"No";})(),referral:ref?ref.value:"self",gp_name:(q("#gp_name")?q("#gp_name").value.trim():""),gp_phone:(q("#gp_phone")?q("#gp_phone").value.trim():"")};
 }
 function getSafety(){
   var sq={};
@@ -1912,6 +2246,7 @@ function doCallback(){
   body.append("scan_label",selLabel());body.append("scan_price",fmt(total()));
   Object.keys(pt).forEach(function(k){body.append("pt_"+k,pt[k]);});
   Object.keys(sq).forEach(function(k){body.append(k,sq[k]);});
+  var gfi2=q("#gp_file");if(pt.referral==="gp"&&gfi2&&gfi2.files&&gfi2.files[0])body.append("gp_file",gfi2.files[0]);
   var pfi2=q("#prev_file");if(pfi2&&pfi2.files&&pfi2.files[0])body.append("prev_file",pfi2.files[0]);
   fetch(AJAX,{method:"POST",body:body})
   .then(function(r){return r.json();})
@@ -1934,7 +2269,32 @@ function doCheckout(){
   .then(function(data){if(data.success){window.location.href=data.data.redirect;}else{document.getElementById("uqbLoading").style.display="none";alert("Something went wrong. Please try again.");}})
   .catch(function(){document.getElementById("uqbLoading").style.display="none";alert("Connection error. Please try again.");});
 }
+// Postcode dogrulama -- postcodes.io (ucretsiz, key gerektirmez).
+// Sokak adresi hala manuel (pt_address); bu sadece postcode dogrulayip
+// Town/City alanini otomatik dolduruyor (Gulistan Hanim talebi, Eyl 2026).
+function checkPostcode(){
+  var pc=q("#pt_postcode"),town=q("#pt_town"),msg=q("#uqbPostcodeMsg");
+  if(!pc||!msg)return;
+  var val=pc.value.trim();
+  if(!val){msg.style.display="none";if(town)town.value="";return;}
+  msg.style.display="block";msg.style.color="#6b7e9c";msg.textContent="Checking postcode…";
+  fetch("https://api.postcodes.io/postcodes/"+encodeURIComponent(val))
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if(data&&data.status===200&&data.result){
+        pc.style.borderColor="#00a896";
+        msg.style.color="#00a896";msg.textContent="✓ Postcode found";
+        if(town)town.value=data.result.admin_district||data.result.region||"";
+      }else{
+        pc.style.borderColor="#ef4444";
+        msg.style.color="#ef4444";msg.textContent="Postcode not recognised — please check and try again";
+        if(town)town.value="";
+      }
+    })
+    .catch(function(){msg.style.display="none";}); // ağ hatasında sessizce geç, formu bloklama
+}
 function init(){
+  var pcEl=q("#pt_postcode");if(pcEl)pcEl.addEventListener("blur",checkPostcode);
   q("#uqbTypeBtn").onclick=function(){var m=q("#uqbTypeMenu");m.style.display=m.style.display==="none"?"block":"none";};
   q("#uqbTypeMenu").onclick=function(e){var b=e.target.closest("button[data-cat]");if(!b)return;q("#uqbTypeMenu").style.display="none";setMode(b.dataset.cat);};
   document.addEventListener("click",function(e){var m=q("#uqbTypeMenu"),btn=q("#uqbTypeBtn");if(m&&btn&&!btn.contains(e.target)&&!m.contains(e.target))m.style.display="none";});
@@ -1969,9 +2329,15 @@ function init(){
       // Restore "Pay in Full" if user went back and changed selection
       var pf=q("#uqbPayFull");if(pf)pf.style.display="";
       var n=q("#uqbCbOnlyNote");if(n)n.remove();
-      if(S.payMode==="callback"){S.payMode="full";var pf2=q("#uqbPayFull");if(pf2){pf2.classList.add("uqb-pay-card--on");var r=pf2.querySelector("input[type=\"radio\"]");if(r)r.checked=true;}var cbc=q("#uqbPayCb");if(cbc)cbc.classList.remove("uqb-pay-card--on");}
+      // 11 Eyl 2026 fix: guvenlik sorulari (pacemaker/pregnant/metal) yuzunden
+      // callback kilidi devredeyse burada asla tam odemeye geri dondurme -
+      // aksi halde tehlikeli cevap veren hasta yine online odeme yapabiliyordu.
+      var danger=["sq_pregnant","sq_pacemaker","sq_metal_body"];
+      var safetyFlagged=danger.some(function(f){var el=ROOT.querySelector("[name=\""+f+"\"]:checked");return el&&el.value==="Yes";});
+      if(S.payMode==="callback"&&!safetyFlagged){S.payMode="full";var pf2=q("#uqbPayFull");if(pf2){pf2.classList.add("uqb-pay-card--on");var r=pf2.querySelector("input[type=\"radio\"]");if(r)r.checked=true;}var cbc=q("#uqbPayCb");if(cbc)cbc.classList.remove("uqb-pay-card--on");}
     }
     goStep(3);S.date=q("#uqbDate").value;if(S.date)loadSlots(S.date);
+    checkSafetyCallback();
     updateConfirmBtn();
   };
   q("#uqbDate").addEventListener("change",function(e){S.date=e.target.value;loadSlots(S.date);});
