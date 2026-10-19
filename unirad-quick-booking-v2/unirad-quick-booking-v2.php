@@ -146,16 +146,21 @@ class Unirad_Quick_Booking_V2 {
     }
 
     // ── Brevo transactional email ────────────────────────────
-    private static function brevo_send( $to_email, $to_name, $subject, $html_body ) {
+    // $attachments: array of array( 'name' => original filename, 'path' => absolute path on disk )
+    private static function brevo_send( $to_email, $to_name, $subject, $html_body, $attachments = array() ) {
         $api_key = UQB_BREVO_API_KEY;
 
         // Wrap in full HTML document — required for proper rendering in all email clients
         $full_html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . esc_html($subject) . '</title></head><body style="margin:0;padding:20px;background:#f4f6f9;font-family:Arial,sans-serif">' . $html_body . '</body></html>';
 
+        $attachments = array_values( array_filter( (array) $attachments, function ( $a ) {
+            return ! empty( $a['path'] ) && is_readable( $a['path'] );
+        } ) );
+
         if ( empty( $api_key ) ) {
             // No Brevo key set — fall back to wp_mail
             $headers = array( 'Content-Type: text/html; charset=UTF-8' );
-            wp_mail( $to_email, $subject, $full_html, $headers );
+            wp_mail( $to_email, $subject, $full_html, $headers, wp_list_pluck( $attachments, 'path' ) );
             return;
         }
         $payload = array(
@@ -165,15 +170,107 @@ class Unirad_Quick_Booking_V2 {
             'htmlContent' => $full_html,
             'textContent' => wp_strip_all_tags( $html_body ),
         );
-        wp_remote_post( 'https://api.brevo.com/v3/smtp/email', array(
+        if ( $attachments ) {
+            $payload['attachment'] = array();
+            foreach ( $attachments as $a ) {
+                $payload['attachment'][] = array(
+                    'name'    => $a['name'],
+                    'content' => base64_encode( file_get_contents( $a['path'] ) ),
+                );
+            }
+        }
+        $args = array(
             'headers' => array(
                 'api-key'      => $api_key,
                 'Content-Type' => 'application/json',
                 'Accept'       => 'application/json',
             ),
             'body'    => wp_json_encode( $payload ),
-            'timeout' => 15,
-        ) );
+            'timeout' => $attachments ? 45 : 15,
+        );
+        $res  = wp_remote_post( 'https://api.brevo.com/v3/smtp/email', $args );
+        $code = is_wp_error( $res ) ? 0 : (int) wp_remote_retrieve_response_code( $res );
+
+        // If Brevo rejected the attachment (size/type), still deliver the email without it
+        // so the booking is never lost — and say so in the body.
+        if ( $attachments && ( $code < 200 || $code >= 300 ) ) {
+            error_log( 'UQB brevo_send attachment failed (' . $code . '): ' . ( is_wp_error( $res ) ? $res->get_error_message() : wp_remote_retrieve_body( $res ) ) );
+            unset( $payload['attachment'] );
+            $note = '<div style="background:#fee2e2;border-left:4px solid #dc2626;padding:10px 14px;margin-bottom:12px;color:#991b1b;font-weight:bold">Attachment could not be emailed. Files are saved on the server: ' . esc_html( implode( ', ', wp_list_pluck( $attachments, 'name' ) ) ) . '</div>';
+            $payload['htmlContent'] = str_replace( '<body style="margin:0;padding:20px;background:#f4f6f9;font-family:Arial,sans-serif">', '<body style="margin:0;padding:20px;background:#f4f6f9;font-family:Arial,sans-serif">' . $note, $full_html );
+            $args['body']    = wp_json_encode( $payload );
+            $args['timeout'] = 15;
+            wp_remote_post( 'https://api.brevo.com/v3/smtp/email', $args );
+        }
+    }
+
+    // ── Patient uploads (referral letter / previous report) ──
+    // Validates each uploaded file, moves it to a non-public folder and returns
+    // array( array( 'label', 'name', 'path' ) ) ready for brevo_send().
+    private static function collect_uploads() {
+        $fields = array(
+            'gp_file'   => 'Referral Letter',
+            'prev_file' => 'Previous Scan / Report',
+        );
+        $mimes = array(
+            'pdf'      => 'application/pdf',
+            'jpg|jpeg' => 'image/jpeg',
+            'png'      => 'image/png',
+            'doc'      => 'application/msword',
+            'docx'     => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        );
+        $out = array();
+
+        foreach ( $fields as $field => $label ) {
+            if ( empty( $_FILES[ $field ] ) || ! is_array( $_FILES[ $field ] ) ) continue;
+            $f = $_FILES[ $field ];
+            if ( ! isset( $f['error'] ) || $f['error'] !== UPLOAD_ERR_OK ) {
+                if ( isset( $f['error'] ) && $f['error'] !== UPLOAD_ERR_NO_FILE ) {
+                    error_log( 'UQB upload ' . $field . ' failed with PHP error code ' . $f['error'] );
+                }
+                continue;
+            }
+            if ( ! is_uploaded_file( $f['tmp_name'] ) || $f['size'] <= 0 || $f['size'] > 10 * MB_IN_BYTES ) continue;
+
+            $name  = sanitize_file_name( wp_unslash( $f['name'] ) );
+            $check = wp_check_filetype_and_ext( $f['tmp_name'], $name, $mimes );
+            if ( empty( $check['ext'] ) || empty( $check['type'] ) ) {
+                error_log( 'UQB upload ' . $field . ' rejected: unsupported type (' . $name . ')' );
+                continue;
+            }
+            if ( ! empty( $check['proper_filename'] ) ) $name = $check['proper_filename'];
+
+            $dir = self::private_upload_dir();
+            if ( ! $dir ) continue;
+            $dest = $dir . '/' . gmdate( 'Ymd-His' ) . '-' . wp_generate_password( 10, false ) . '-' . $name;
+            if ( ! @move_uploaded_file( $f['tmp_name'], $dest ) ) continue;
+            @chmod( $dest, 0640 );
+
+            $out[] = array( 'label' => $label, 'name' => $name, 'path' => $dest );
+        }
+        return $out;
+    }
+
+    // Uploads hold patient medical documents — keep them out of public reach.
+    private static function private_upload_dir() {
+        $up  = wp_upload_dir();
+        $dir = trailingslashit( $up['basedir'] ) . 'uqb-patient-files';
+        if ( ! is_dir( $dir ) && ! wp_mkdir_p( $dir ) ) return '';
+        if ( ! file_exists( $dir . '/.htaccess' ) ) @file_put_contents( $dir . '/.htaccess', "Require all denied\nDeny from all\n" );
+        if ( ! file_exists( $dir . '/index.php' ) ) @file_put_contents( $dir . '/index.php', "<?php // Silence is golden.\n" );
+        return $dir;
+    }
+
+    // Email row listing what the patient uploaded (or a warning if nothing arrived).
+    private static function uploads_rows( $files, $referral ) {
+        $s = '';
+        foreach ( $files as $f ) {
+            $s .= uqb_row( $f['label'], '📎 ' . $f['name'] . ' (attached)' );
+        }
+        if ( $referral === 'gp' && ! in_array( 'Referral Letter', wp_list_pluck( $files, 'label' ), true ) ) {
+            $s .= uqb_row( 'Referral Letter', 'Not uploaded — ask patient / GP to email it' );
+        }
+        return $s;
     }
 
     // ── Bookly available slots from DB ───────────────────────
@@ -470,6 +567,7 @@ class Unirad_Quick_Booking_V2 {
             'referral' => sanitize_text_field(    isset( $_POST['pt_referral'] ) ? $_POST['pt_referral'] : 'self' ),
             'gp_name'  => sanitize_text_field(    isset( $_POST['pt_gp_name']  ) ? $_POST['pt_gp_name']  : '' ),
             'gp_phone' => sanitize_text_field(    isset( $_POST['pt_gp_phone'] ) ? $_POST['pt_gp_phone'] : '' ),
+            'prev_exam'=> sanitize_text_field(    isset( $_POST['pt_prev_exam'] ) ? $_POST['pt_prev_exam'] : '' ),
         );
 
         $sq_keys = array('sq_prev_mri','sq_pregnant','sq_pacemaker','sq_metal_body','sq_items','sq_implants_detail','sq_surgeries','sq_height_unit','sq_height_cm','sq_weight_kg','sq_height_ft','sq_height_in','sq_weight_st','sq_weight_lb');
@@ -478,7 +576,9 @@ class Unirad_Quick_Booking_V2 {
             $sq[$k] = sanitize_textarea_field( isset( $_POST[$k] ) ? $_POST[$k] : '' );
         }
 
-        $scan  = sanitize_text_field( isset( $_POST['scan_label'] ) ? $_POST['scan_label'] : '' );
+        $files = self::collect_uploads();
+
+        $scan  =sanitize_text_field( isset( $_POST['scan_label'] ) ? $_POST['scan_label'] : '' );
         $price = sanitize_text_field( isset( $_POST['scan_price'] ) ? $_POST['scan_price'] : '' );
         $full  = trim( $pt['title'] . ' ' . $pt['first'] . ' ' . $pt['last'] );
 
@@ -518,6 +618,8 @@ class Unirad_Quick_Booking_V2 {
             $s .= uqb_row('GP Name', $pt['gp_name']);
             $s .= uqb_row('GP Phone', $pt['gp_phone']);
         }
+        $s .= uqb_row('Previous Exams', $pt['prev_exam']);
+        $s .= self::uploads_rows( $files, $pt['referral'] );
         $s .= '</div>';
 
         $s .= uqb_section('MRI Safety Questionnaire');
@@ -539,7 +641,7 @@ class Unirad_Quick_Booking_V2 {
         $s .= '</div>';
         $s .= '</div>';
 
-        self::brevo_send( UQB_NOTIFY_EMAIL, 'Unirad Team', 'Callback: ' . $full . ' - ' . $scan, $s );
+        self::brevo_send( UQB_NOTIFY_EMAIL, 'Unirad Team', 'Callback: ' . $full . ' - ' . $scan, $s, $files );
 
         // ── Patient confirmation email ────────────────────────
         if ( $pt['email'] ) {
@@ -640,7 +742,8 @@ class Unirad_Quick_Booking_V2 {
             'phone'    => sanitize_text_field(    isset( $_POST['pt_phone']   ) ? $_POST['pt_phone']   : '' ),
             'email'    => sanitize_email(         isset( $_POST['pt_email']   ) ? $_POST['pt_email']   : '' ),
             'reason'   => sanitize_textarea_field(isset( $_POST['pt_reason']  ) ? $_POST['pt_reason']  : '' ),
-            'referral' => sanitize_text_field(    isset( $_POST['pt_ref']     ) ? $_POST['pt_ref']     : 'self' ),
+            // JS sends pt_referral (getPatient().referral); pt_ref kept as legacy fallback
+            'referral' => sanitize_text_field(    isset( $_POST['pt_referral'] ) ? $_POST['pt_referral'] : ( isset( $_POST['pt_ref'] ) ? $_POST['pt_ref'] : 'self' ) ),
             'gp_name'  => sanitize_text_field(    isset( $_POST['pt_gp_name'] ) ? $_POST['pt_gp_name'] : '' ),
             'gp_phone' => sanitize_text_field(    isset( $_POST['pt_gp_phone']) ? $_POST['pt_gp_phone']: '' ),
         );
@@ -718,6 +821,7 @@ class Unirad_Quick_Booking_V2 {
             'uqb_callback'     => 'no',
             'uqb_patient'      => $pt,
             'uqb_safety'       => $sq,
+            'uqb_files'        => self::collect_uploads(),
         );
 
         WC()->cart->empty_cart();
@@ -860,6 +964,11 @@ class Unirad_Quick_Booking_V2 {
             $cl .= '<tr style="background:#f8fafc"><td style="padding:6px 10px;color:#64748b">Referral</td><td style="padding:6px 10px">' . esc_html($pt_ref) . '</td></tr>';
             if ( $gp_info ) $cl .= '<tr><td style="padding:6px 10px;color:#64748b">GP</td><td style="padding:6px 10px">' . esc_html($gp_info) . '</td></tr>';
             $cl .= '<tr' . ($gp_info?'':' style="background:#f8fafc"') . '><td style="padding:6px 10px;color:#64748b">Reason</td><td style="padding:6px 10px">' . esc_html($pt_reason) . '</td></tr>';
+            $uqb_files = $item->get_meta( '_uqb_files' ) ?: $order->get_meta( '_uqb_files' );
+            $uqb_files = is_array( $uqb_files ) ? $uqb_files : array();
+            foreach ( $uqb_files as $uf ) {
+                $cl .= '<tr><td style="padding:6px 10px;color:#64748b">' . esc_html( $uf['label'] ) . '</td><td style="padding:6px 10px">&#x1F4CE; ' . esc_html( $uf['name'] ) . ' (attached)</td></tr>';
+            }
             $cl .= '</table>';
             if ( $safety ) {
                 $cl .= '<div style="font-weight:bold;font-size:12px;color:#0d1f3c;margin-bottom:6px;border-bottom:2px solid #00a896;padding-bottom:4px">SAFETY CHECKLIST</div>';
@@ -877,7 +986,7 @@ class Unirad_Quick_Booking_V2 {
                 self::mark_lead_converted( $pt_email, $scan_label );
             }
 
-            self::brevo_send( UQB_NOTIFY_EMAIL, 'Unirad Team', '[New Booking] ' . $full . ' - ' . $scan_label . ' - ' . $date_fmt . ' ' . $time_fmt, $cl );
+            self::brevo_send( UQB_NOTIFY_EMAIL, 'Unirad Team', '[New Booking] ' . $full . ' - ' . $scan_label . ' - ' . $date_fmt . ' ' . $time_fmt, $cl, $uqb_files );
 
             break;
         }
@@ -1050,6 +1159,9 @@ class Unirad_Quick_Booking_V2 {
                 $order->update_meta_data( '_uqb_booking_date', $d );
                 $order->update_meta_data( '_uqb_booking_time', $t );
                 $order->update_meta_data( '_uqb_scan_label',   $s );
+            }
+            if ( ! empty( $cart_item['uqb_files'] ) ) {
+                $order->update_meta_data( '_uqb_files', $cart_item['uqb_files'] );
             }
             break;
         }
@@ -1276,9 +1388,13 @@ class Unirad_Quick_Booking_V2 {
             $item->add_meta_data( 'Date of Birth', $pt['dob'] );
             $item->add_meta_data( 'Phone',         $pt['phone'] );
             $item->add_meta_data( 'Email',         $pt['email'] );
-            $item->add_meta_data( 'Referral Type', ucfirst( $pt['referral'] ) );
+            $item->add_meta_data( 'Referral Type', $pt['referral'] === 'gp' ? 'GP / Clinician' : 'Self' );
             if ( ! empty( $pt['gp_name'] ) ) $item->add_meta_data( 'GP', $pt['gp_name'] . ( $pt['gp_phone'] ? ' / ' . $pt['gp_phone'] : '' ) );
             $item->add_meta_data( 'Reason', $pt['reason'] );
+        }
+        if ( ! empty( $values['uqb_files'] ) ) {
+            $item->add_meta_data( '_uqb_files', $values['uqb_files'], true );
+            $item->add_meta_data( 'Uploaded Files', implode( ', ', wp_list_pluck( $values['uqb_files'], 'name' ) ) );
         }
         $sq = isset( $values['uqb_safety'] ) ? $values['uqb_safety'] : array();
         if ( ! empty( $sq ) ) {
@@ -1977,6 +2093,7 @@ function doCallback(){
   body.append("scan_label",selLabel());body.append("scan_price",fmt(total()));
   Object.keys(pt).forEach(function(k){body.append("pt_"+k,pt[k]);});
   Object.keys(sq).forEach(function(k){body.append(k,sq[k]);});
+  var gfi2=q("#gp_file");if(pt.referral==="gp"&&gfi2&&gfi2.files&&gfi2.files[0])body.append("gp_file",gfi2.files[0]);
   var pfi2=q("#prev_file");if(pfi2&&pfi2.files&&pfi2.files[0])body.append("prev_file",pfi2.files[0]);
   fetch(AJAX,{method:"POST",body:body})
   .then(function(r){return r.json();})
