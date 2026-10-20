@@ -1354,18 +1354,22 @@ class Unirad_Quick_Booking_V2 {
             // bir servise bağlarsak servisin başlığı (örn. jenerik "MRI scan") basılır
             // ve custom isim tamamen yok sayılır. (Adelle Davis #1091 vakasının kök nedeni.)
 
-            $ex  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$bt} WHERE start_date=%s AND staff_id=%d LIMIT 1", $sdt, UQB_BOOKLY_STAFF_ID ) );
+            // Detect all time-interval overlaps, not just identical start times.
+            // This is a defensive check, NOT an atomic reservation lock.
+            $ex = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT id FROM {$bt} WHERE staff_id = %d AND start_date < %s AND end_date > %s ORDER BY start_date ASC LIMIT 1",
+                UQB_BOOKLY_STAFF_ID, $edt, $sdt
+            ) );
             if ( $ex ) {
-                // Never overwrite or claim an appointment merely because its start/staff matches.
-                // Even if this is a retry, do not mutate a row without durable ownership proof.
                 $owned_id = (int) $order->get_meta( '_uqb_owned_bookly_appt_id' );
-                if ( $owned_id && $owned_id === (int) $ex ) {
-                    // Idempotent retry for an appointment created by this order.
+                $linked_id = (int) $order->get_meta( '_uqb_bookly_appt_id' );
+                if ( $owned_id === $ex && $linked_id === $ex ) {
+                    // Retry for this order's existing appointment; no mutation.
                     continue;
                 }
-                $order->add_order_note( 'Bookly slot conflict: existing appointment was not modified; staff reconciliation required.' );
+                $order->add_order_note( 'Bookly time overlap: appointment not created; staff reconciliation required.' );
                 $order->save();
-                error_log( 'UQB Bookly slot conflict: order=' . (int) $order_id . ' appointment=' . (int) $ex );
+                error_log( 'UQB Bookly overlap: order=' . (int) $order_id . ' appointment=' . $ex );
                 continue;
             }
             error_log( "UQB DEBUG order#{$order_id}: no existing row at slot {$sdt} — inserting new appointment with custom_service_name=[{$scan}]" );
