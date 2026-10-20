@@ -1266,9 +1266,17 @@ class Unirad_Quick_Booking_V2 {
         $bt = $wpdb->prefix . 'bookly_appointments';
         if ( ! $wpdb->get_var( "SHOW TABLES LIKE '{$bt}'" ) ) return;
 
+        // Fail closed for legacy or ambiguous appointments: an order must prove it created this row.
+        $owned_id = (int) $order->get_meta( '_uqb_owned_bookly_appt_id' );
+        if ( ! $owned_id || $owned_id !== $appt_id ) {
+            $order->add_order_note( 'Bookly removal blocked: appointment ownership requires manual reconciliation.' );
+            $order->save();
+            return;
+        }
         $wpdb->delete( $wpdb->prefix . 'bookly_customer_appointments', array( 'appointment_id' => $appt_id ), array( '%d' ) );
         $wpdb->delete( $bt, array( 'id' => $appt_id ), array( '%d' ) );
         $order->delete_meta_data( '_uqb_bookly_appt_id' );
+        $order->delete_meta_data( '_uqb_owned_bookly_appt_id' );
         $order->add_order_note( 'Bookly appointment #' . $appt_id . ' removed (order ' . $order->get_status() . ').' );
         $order->save();
     }
@@ -1338,25 +1346,16 @@ class Unirad_Quick_Booking_V2 {
 
             $ex  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$bt} WHERE start_date=%s AND staff_id=%d LIMIT 1", $sdt, UQB_BOOKLY_STAFF_ID ) );
             if ( $ex ) {
-                // Aynı slota başka kaynaktan (manuel/ScanBook/Bookly'nin kendi native
-                // WooCommerce entegrasyonu) kayıt düşmüş olabilir. Daha önce burada
-                // "isim zaten dolu mu" diye kontrol edip sadece boşsa/generic ise
-                // yazıyorduk — bu güvenilmez çıktı (Bookly'nin kendi yazdığı değer
-                // beklenmedik biçimlerde olabiliyor, string eşleşmesi kaçırıyordu).
-                // ARTIK KOŞULSUZ: Bu order'daki gerçek veri (WooCommerce siparişi)
-                // HER ZAMAN otoriter kaynaktır — orada ne yazılı olursa olsun üzerine yazıyoruz.
-                $ex_row = $wpdb->get_row( $wpdb->prepare(
-                    "SELECT custom_service_name, custom_service_price FROM {$bt} WHERE id = %d", $ex
-                ), ARRAY_A );
-                error_log( "UQB DEBUG order#{$order_id}: existing Bookly row #{$ex} found at slot {$sdt} — current custom_service_name=[" . ( $ex_row['custom_service_name'] ?? 'NULL' ) . "] FORCING our scan=[{$scan}]" );
-                $ex_upd = array( 'custom_service_name' => $scan, 'service_id' => null );
-                if ( (float) $order->get_total() > 0 ) $ex_upd['custom_service_price'] = $order->get_total();
-                $wpdb->update( $bt, $ex_upd, array( 'id' => $ex ) );
-                error_log( "UQB DEBUG order#{$order_id}: FORCE-updated existing row #{$ex} with " . wp_json_encode( $ex_upd ) );
-                // ID bağlantısını kalıcı kaydet — randevu sonradan takvimde
-                // taşınsa bile (drag-drop reschedule) bu link tarih/saate bağlı değildir
-                $order->update_meta_data( '_uqb_bookly_appt_id', $ex );
+                // Never overwrite or claim an appointment merely because its start/staff matches.
+                // Even if this is a retry, do not mutate a row without durable ownership proof.
+                $owned_id = (int) $order->get_meta( '_uqb_owned_bookly_appt_id' );
+                if ( $owned_id && $owned_id === (int) $ex ) {
+                    // Idempotent retry for an appointment created by this order.
+                    continue;
+                }
+                $order->add_order_note( 'Bookly slot conflict: existing appointment was not modified; staff reconciliation required.' );
                 $order->save();
+                error_log( 'UQB Bookly slot conflict: order=' . (int) $order_id . ' appointment=' . (int) $ex );
                 continue;
             }
             error_log( "UQB DEBUG order#{$order_id}: no existing row at slot {$sdt} — inserting new appointment with custom_service_name=[{$scan}]" );
@@ -1389,6 +1388,7 @@ class Unirad_Quick_Booking_V2 {
                 );
                 // Randevu ID'sini siparişe kaydet — iptal/iade olursa Bookly'den silinebilsin
                 $order->update_meta_data( '_uqb_bookly_appt_id', $appt_id );
+                $order->update_meta_data( '_uqb_owned_bookly_appt_id', $appt_id );
                 $order->save();
                 // Clear session booking data after successful write
                 if ( WC()->session ) {
