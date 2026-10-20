@@ -914,6 +914,16 @@ class Unirad_Quick_Booking_V2 {
         $order = wc_get_order( $order_id );
         if ( ! $order ) return;
         if ( $order->get_meta( '_uqb_patient_email_sent' ) ) return;
+        // Never confirm a booking that this order cannot prove it owns.
+        // Existing legacy orders need explicit reconciliation before confirmation.
+        $linked_appt = (int) $order->get_meta( '_uqb_bookly_appt_id' );
+        $owned_appt  = (int) $order->get_meta( '_uqb_owned_bookly_appt_id' );
+        if ( ! $linked_appt || $linked_appt !== $owned_appt ) {
+            $order->add_order_note( 'Patient confirmation withheld: Bookly appointment ownership unverified.' );
+            $order->save();
+            return;
+        }
+
 
         foreach ( $order->get_items() as $item ) {
             $scan_label = $item->get_meta( 'Scan Details' );
