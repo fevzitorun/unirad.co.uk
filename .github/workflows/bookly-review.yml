@@ -1,0 +1,17 @@
+name: Bookly review safeguards
+on:
+  push:
+    branches:
+      - fix/bookly-ownership-integrity-review
+  workflow_dispatch:
+jobs:
+  lint-and-static-guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP syntax validation (both copies)
+        run: |
+          php -l unirad-quick-booking-v2.php
+          php -l unirad-quick-booking-v2/unirad-quick-booking-v2.php
+      - name: Mirror and defensive guard checks
+        run: python3 scripts/check-bookly-review.py
