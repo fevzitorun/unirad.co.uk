@@ -1354,6 +1354,19 @@ class Unirad_Quick_Booking_V2 {
             // bir servise bağlarsak servisin başlığı (örn. jenerik "MRI scan") basılır
             // ve custom isim tamamen yok sayılır. (Adelle Davis #1091 vakasının kök nedeni.)
 
+            // Advisory lock serialises cooperating Quick Booking writers for this staff.
+            // Native Bookly/manual writers may not acquire this lock.
+            $lock_name = 'uqb_staff_' . (int) UQB_BOOKLY_STAFF_ID;
+            $lock_acquired = (int) $wpdb->get_var( $wpdb->prepare(
+                'SELECT GET_LOCK(%s, %d)', $lock_name, 5
+            ) );
+            if ( $lock_acquired !== 1 ) {
+                $order->add_order_note( 'Bookly staff lock unavailable: appointment not created; manual reconciliation required.' );
+                $order->save();
+                error_log( 'UQB Bookly staff lock unavailable: order=' . (int) $order_id );
+                continue;
+            }
+            try {
             // Detect all time-interval overlaps, not just identical start times.
             // This is a defensive check, NOT an atomic reservation lock.
             $ex = (int) $wpdb->get_var( $wpdb->prepare(
@@ -1412,6 +1425,9 @@ class Unirad_Quick_Booking_V2 {
                 }
             }
 
+            } finally {
+                $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+            }
             // Link customer to appointment via bookly_customer_appointments
             if ( $appt_id ) {
                 $customer_email = $item->get_meta( 'Email' );
