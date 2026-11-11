@@ -138,6 +138,27 @@ if ( ! function_exists( 'uqb_calc_duration' ) ) {
 
 class Unirad_Quick_Booking_V2 {
 
+    // Hafta sonu (Cmt/Paz) online sadece bu MRI bölgeleri satılır — 14 Kas 2026 klinik talebi.
+    // Rezervasyondaki TÜM bölgeler listede olmalı (Diz + Kalça olur, Diz + Omuz olmaz).
+    // Full Body / GP hafta sonu kapalı. Saatler Bookly Staff → Schedule'dan gelir.
+    const WEEKEND_SCAN_IDS = array( 'knee', 'lumbar', 'cervical', 'brain_head', 'hip' );
+    const WEEKEND_SCAN_MSG = 'Weekend appointments are available for Knee, Lumbar Spine, Cervical Spine, Brain and Hip MRI only. Please choose a weekday for other scans.';
+
+    public static function is_weekend_date( $date ) {
+        $ts = strtotime( $date );
+        if ( ! $ts ) return false;
+        $w = (int) date( 'w', $ts );
+        return $w === 0 || $w === 6;
+    }
+
+    public static function weekend_scans_allowed( $mode, $scan_ids ) {
+        if ( $mode !== 'mri' || empty( $scan_ids ) ) return false;
+        foreach ( $scan_ids as $id ) {
+            if ( ! in_array( $id, self::WEEKEND_SCAN_IDS, true ) ) return false;
+        }
+        return true;
+    }
+
     public static function init() {
         add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue' ) );
         add_shortcode( 'quick_booking_v2', array( __CLASS__, 'shortcode' ) );
@@ -349,6 +370,14 @@ class Unirad_Quick_Booking_V2 {
             return;
         }
 
+        // Hafta sonu bölge kısıtı — seçilen taramalardan biri bile listede yoksa saat gösterme
+        $mode     = sanitize_key( isset( $_POST['mode'] ) ? $_POST['mode'] : 'mri' );
+        $scan_ids = array_filter( array_map( 'sanitize_key', explode( ',', (string) ( isset( $_POST['scan_ids'] ) ? $_POST['scan_ids'] : '' ) ) ) );
+        if ( self::is_weekend_date( $date ) && ! self::weekend_scans_allowed( $mode, $scan_ids ) ) {
+            wp_send_json_success( array( 'slots' => array(), 'weekend_restricted' => true, 'msg' => self::WEEKEND_SCAN_MSG ) );
+            return;
+        }
+
         // ── Çalışma saatleri: artık Bookly'nin kendi Staff → Schedule ayarından
         // CANLI okunuyor — kod içinde sabit saat YOK. Bookly'de değiştirdiğiniz an
         // (Add break dahil) site otomatik senkron olur, bir daha elle eşleştirme gerekmez.
@@ -431,11 +460,9 @@ class Unirad_Quick_Booking_V2 {
                         $s_m = (int)substr($appt->start_date, 11, 2) * 60 + (int)substr($appt->start_date, 14, 2);
                         $e_m = (int)substr($appt->end_date,   11, 2) * 60 + (int)substr($appt->end_date,   14, 2);
                         // 30-min granularity: block every half-hour slot that overlaps the appointment
-                        // (540=09:00 kapsanır — yeni açılış saatiyle uyumlu)
-                        for ( $bm = 540; $bm < 1200; $bm += 30 ) {
-                            if ( $bm < $e_m && ( $bm + 30 ) > $s_m ) {
-                                $booked[] = sprintf( '%02d:%02d', intdiv($bm,60), $bm%60 );
-                            }
+                        // (sabit 09:00–20:00 aralığı kaldırıldı — 08:30 açılışta randevular da bloklanır)
+                        for ( $bm = intdiv( $s_m, 30 ) * 30; $bm < $e_m; $bm += 30 ) {
+                            $booked[] = sprintf( '%02d:%02d', intdiv($bm,60), $bm%60 );
                         }
                     }
                 }
@@ -832,6 +859,20 @@ class Unirad_Quick_Booking_V2 {
             }
         }
         // ──────────────────────────────────────────────────────────
+
+        // Hafta sonu bölge kısıtı — slot listesini atlayan istekler de burada durur
+        if ( $date && self::is_weekend_date( $date ) ) {
+            $ids = array();
+            if ( is_array( $items ) ) {
+                foreach ( $items as $it ) {
+                    $ids[] = sanitize_key( isset( $it['id'] ) ? $it['id'] : '' );
+                }
+            }
+            if ( ! self::weekend_scans_allowed( $mode, $ids ) ) {
+                wp_send_json_error( array( 'msg' => self::WEEKEND_SCAN_MSG ) );
+                return;
+            }
+        }
 
         $catalog = self::catalog();
 
@@ -2147,10 +2188,11 @@ function calcDuration(){
 function loadSlots(date){
   var cont=q("#uqbSlots");cont.innerHTML="<p class=\"uqb-note\">Loading slots...</p>";
   S.time="";updateConfirmBtn();
-  fetch(AJAX,{method:"POST",body:new URLSearchParams({action:"unirad_qb2_slots",nonce:NONCE,date:date,duration:calcDuration()})})
+  fetch(AJAX,{method:"POST",body:new URLSearchParams({action:"unirad_qb2_slots",nonce:NONCE,date:date,duration:calcDuration(),mode:S.mode,scan_ids:keys().join(",")})})
   .then(function(r){return r.json();})
   .then(function(data){
     if(!data||typeof data!=="object"||!data.success){cont.innerHTML="<p class=\"uqb-note\" style=\"color:red\">Sorry, something went wrong loading times. Please refresh the page or call us to book.</p>";return;}
+    if(data.data.weekend_restricted){var w=document.createElement("p");w.className="uqb-note";w.style.color="#b45309";w.textContent=data.data.msg;cont.innerHTML="";cont.appendChild(w);return;}
     if(!data.data.slots.length){cont.innerHTML="<p class=\"uqb-note\">No availability on this day. Please try another date.</p>";return;}
     cont.innerHTML="";
     data.data.slots.forEach(function(slot){
@@ -2266,7 +2308,7 @@ function doCheckout(){
   var pfi3=q("#prev_file");if(pfi3&&pfi3.files&&pfi3.files[0])body.append("prev_file",pfi3.files[0]);
   fetch(AJAX,{method:"POST",body:body})
   .then(function(r){return r.json();})
-  .then(function(data){if(data.success){window.location.href=data.data.redirect;}else{document.getElementById("uqbLoading").style.display="none";alert("Something went wrong. Please try again.");}})
+  .then(function(data){if(data.success){window.location.href=data.data.redirect;}else{document.getElementById("uqbLoading").style.display="none";alert((data.data&&data.data.msg)||"Something went wrong. Please try again.");}})
   .catch(function(){document.getElementById("uqbLoading").style.display="none";alert("Connection error. Please try again.");});
 }
 // Postcode dogrulama -- postcodes.io (ucretsiz, key gerektirmez).
