@@ -364,6 +364,7 @@ class Unirad_Quick_Booking_V2 {
             '2026-12-25', // Christmas Day
             '2026-12-26', // Boxing Day
             '2025-12-25', '2025-12-26', '2025-01-01',
+            '2027-01-03', // Pazar 3 Ocak — klinik kapalı (Cmt 2 Ocak Bookly'de BLOCK)
         );
         if ( in_array( $date, $bank_holidays ) ) {
             wp_send_json_success( array( 'slots' => array() ) );
