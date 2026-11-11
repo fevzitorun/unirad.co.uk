@@ -364,6 +364,7 @@ class Unirad_Quick_Booking_V2 {
             '2026-12-25', // Christmas Day
             '2026-12-26', // Boxing Day
             '2025-12-25', '2025-12-26', '2025-01-01',
+            '2027-01-01', // New Year's Day 2027 (Bookly'de BLOCK var; 08:30 açılışla sabah slotları açık kalıyordu)
             '2027-01-03', // Pazar 3 Ocak — klinik kapalı (Cmt 2 Ocak Bookly'de BLOCK)
         );
         if ( in_array( $date, $bank_holidays ) ) {
@@ -399,6 +400,14 @@ class Unirad_Quick_Booking_V2 {
 
         $open_mins = ( (int) substr( $sched->start_time, 0, 2 ) ) * 60 + (int) substr( $sched->start_time, 3, 2 );
         $end_mins  = ( (int) substr( $sched->end_time,   0, 2 ) ) * 60 + (int) substr( $sched->end_time,   3, 2 );
+
+        // Tek seferlik erken kapanış: tarih => kapanış saati (dakika). Tüm çekimler bu saatte bitmiş olmalı.
+        $early_close = array(
+            '2026-11-12' => 17 * 60, // Perşembe 12 Kasım — 17:00'den sonrası kapalı
+        );
+        if ( isset( $early_close[ $date ] ) ) {
+            $end_mins = min( $end_mins, $early_close[ $date ] );
+        }
 
         // Bookly'de bu gün için tanımlı mola(lar) varsa (Staff → Schedule → Add break)
         // aşağıda booked_mins'e eklenip otomatik bloklanacak.
