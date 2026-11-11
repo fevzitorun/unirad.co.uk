@@ -408,6 +408,13 @@ class Unirad_Quick_Booking_V2 {
         if ( isset( $early_close[ $date ] ) ) {
             $end_mins = min( $end_mins, $early_close[ $date ] );
         }
+        // Tek seferlik geç açılış: tarih => ilk randevu saati (dakika).
+        $late_open = array(
+            '2026-11-13' => 10 * 60, // Cuma 13 Kasım — ilk randevu 10:00
+        );
+        if ( isset( $late_open[ $date ] ) ) {
+            $open_mins = max( $open_mins, $late_open[ $date ] );
+        }
 
         // Bookly'de bu gün için tanımlı mola(lar) varsa (Staff → Schedule → Add break)
         // aşağıda booked_mins'e eklenip otomatik bloklanacak.
