@@ -144,6 +144,30 @@ class Unirad_Quick_Booking_V2 {
     const WEEKEND_SCAN_IDS = array( 'knee', 'lumbar', 'cervical', 'brain_head', 'hip' );
     const WEEKEND_SCAN_MSG = 'Weekend appointments are available for Knee, Lumbar Spine, Cervical Spine, Brain and Hip MRI only. Please choose a weekday for other scans.';
 
+    // Klinik değerlendirme süresi (20 Kas 2026 klinik talebi):
+    //   08:00–14:00 arası giren hasta → şimdi + 6 saat
+    //   08:00 öncesi giren            → aynı gün en erken 12:00
+    //   14:00 sonrası / gece giren    → ertesi gün en erken 12:00
+    // Döner: en erken randevu başlangıcı (Europe/London DateTime).
+    public static function earliest_bookable( $now = null ) {
+        $tz  = new DateTimeZone( 'Europe/London' );
+        $now = $now ? clone $now : new DateTime( 'now', $tz );
+        $now->setTimezone( $tz );
+        $m   = (int) $now->format( 'H' ) * 60 + (int) $now->format( 'i' );
+        if ( $m < 8 * 60 ) {
+            $e = clone $now;
+            $e->setTime( 12, 0 );
+        } elseif ( $m < 14 * 60 ) {
+            $e = clone $now;
+            $e->modify( '+6 hours' );
+        } else {
+            $e = clone $now;
+            $e->modify( '+1 day' );
+            $e->setTime( 12, 0 );
+        }
+        return $e;
+    }
+
     public static function is_weekend_date( $date ) {
         $ts = strtotime( $date );
         if ( ! $ts ) return false;
@@ -424,34 +448,20 @@ class Unirad_Quick_Booking_V2 {
             $sched->id
         ) );
 
-        if ( $date === $today ) {
-            // 3-hour lead time in London time, round up to next :30 slot
-            $earliest = clone $now;
-            $earliest->modify( '+3 hours' );
-            $e_mins = (int)$earliest->format('H') * 60 + (int)$earliest->format('i');
-            // Round up to next :30 boundary (09:30, 10:30, 11:30...)
-            $remainder = $e_mins % 60;
-            if ( $remainder <= 30 ) {
-                $e_mins = $e_mins - $remainder + 30;
-            } else {
-                $e_mins = $e_mins - $remainder + 90; // next hour :30
+        // ── 6 saatlik klinik değerlendirme süresi (bkz. earliest_bookable) ──
+        $earliest  = self::earliest_bookable( $now );
+        $e_date    = $earliest->format( 'Y-m-d' );
+        if ( $date < $e_date ) {
+            wp_send_json_success( array( 'slots' => array() ) );
+            return;
+        }
+        $start_mins = $open_mins;
+        if ( $date === $e_date ) {
+            $e_mins = (int) $earliest->format( 'H' ) * 60 + (int) $earliest->format( 'i' );
+            if ( $e_mins % 30 ) {
+                $e_mins += 30 - ( $e_mins % 30 ); // bir sonraki :00/:30 slotuna yuvarla
             }
             $start_mins = max( $open_mins, $e_mins );
-            // If earliest available slot is past the last slot of the day, today is full
-            if ( $start_mins > $end_mins - 30 ) {
-                wp_send_json_success( array( 'slots' => array() ) );
-                return;
-            }
-        } elseif ( $date === $tomorrow ) {
-            // If order placed before 14:00 London time → tomorrow starts at opening
-            // If order placed at/after 14:00 London time → tomorrow starts 90 min later
-            $now_hour  = (int)$now->format('H');
-            $now_min   = (int)$now->format('i');
-            $now_total = $now_hour * 60 + $now_min;
-            $start_mins = ( $now_total < 840 ) ? $open_mins : ( $open_mins + 90 );
-        } else {
-            // All other future days start at opening
-            $start_mins = $open_mins;
         }
 
         // ── Get booked slots from Bookly ──────────────────────────────────
@@ -859,20 +869,16 @@ class Unirad_Quick_Booking_V2 {
             $sq[$k] = sanitize_textarea_field( isset( $_POST[$k] ) ? $_POST[$k] : '' );
         }
 
-        // ── Server-side lead time check (3-hour minimum) ──────────
+        // ── Server-side lead time check (6 saat klinik değerlendirme) ──
         // Re-validate at submission time — prevents stale slots being booked
         if ( $date && $time && $pay_mode !== 'callback' ) {
             $tz          = new DateTimeZone( 'Europe/London' );
-            $now_check   = new DateTime( 'now', $tz );
             $appt_dt     = DateTime::createFromFormat( 'Y-m-d H:i', $date . ' ' . $time, $tz );
-            if ( $appt_dt ) {
-                $diff_mins = (int) ( ( $appt_dt->getTimestamp() - $now_check->getTimestamp() ) / 60 );
-                if ( $diff_mins < 180 ) { // less than 3 hours away
-                    wp_send_json_error( array(
-                        'msg' => 'Sorry, this time slot is no longer available. Bookings must be made at least 3 hours in advance. Please select a later time.',
-                    ) );
-                    return;
-                }
+            if ( $appt_dt && $appt_dt < self::earliest_bookable() ) {
+                wp_send_json_error( array(
+                    'msg' => 'Sorry, this time slot is no longer available. Our clinical team needs at least 6 hours to review each booking. Please select a later time.',
+                ) );
+                return;
             }
         }
         // ──────────────────────────────────────────────────────────
